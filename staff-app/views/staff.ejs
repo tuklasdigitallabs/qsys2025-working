@@ -1,0 +1,533 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QSys Staff Panel</title>
+  <link rel="stylesheet" href="/public_css/style.css" />
+  <script defer src="/public_js/staff.js"></script>
+<style>
+  body {
+    background:#f6f3ee;
+  }
+
+  .page { padding: 20px 28px 32px; }
+
+  .topbar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    gap: 12px;
+    padding: 12px 28px;
+    background: #e9a74e;
+    color: #fff;
+  }
+
+  .topbar-left h1 {
+    margin:0;
+    font-size:20px;
+    line-height:1.2;
+    font-weight:800;
+  }
+  .topbar-left .branch {
+    margin-top:4px;
+    font-size:16px;
+    font-weight:700;
+  }
+  .topbar-left .date {
+    margin-top:2px;
+    font-size:14px;
+    opacity:.9;
+  }
+
+  .topbar-right {
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:8px;
+  }
+
+  .topbar .btn {
+    padding:8px 12px;
+    border-radius:10px;
+    border:none;
+    cursor:pointer;
+    font-weight:700;
+  }
+  .btn-open {
+    background:#fff;
+    color:#333;
+  }
+  .btn-logout {
+    background:#7a4b12;
+    color:#fff;
+  }
+
+/* Stack header content in one column on tablets & phones */
+@media (max-width: 1024px) {
+  .topbar {
+    grid-template-columns: 1fr;      /* single column */
+    justify-items: flex-start;
+    row-gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .topbar-right {
+    align-items: flex-start;         /* left-align buttons/text */
+  }
+
+  /* Optional: full-width buttons for easier tapping */
+  .topbar-right .btn {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+  /* Root layout for staff main area */
+  #staff-root {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  /* === PILL BAR (FORCE VISIBLE) === */
+  #group-tabs {
+    margin: 16px 0 16px;
+    display: flex !important;           /* force visible */
+    background: #fffdf6;
+    border-radius: 999px;
+    border: 1px solid #f2e6d5;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.04);
+  }
+
+  #group-tabs .group-tab {
+    flex: 1 1 0;
+    border: 0;
+    background: transparent;
+    padding: 8px 4px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    color: #3b271c;
+    position: relative;
+  }
+
+  #group-tabs .group-tab + .group-tab {
+    border-left: 1px solid rgba(0,0,0,0.08);
+  }
+
+  #group-tabs .group-tab.is-active {
+    background: #e9a74e;
+    color: #fff;
+  }
+
+  #group-tabs .group-tab.is-active + .group-tab {
+    border-left-color: rgba(255,255,255,0.35);
+  }
+
+  /* GROUP CONTAINER */
+  .groups {
+    display: block;
+  }
+
+  .group-column {
+    background: #fffdf6;
+    border: 1px solid #f2e6d5;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.05);
+  }
+
+  .group-view.is-hidden {
+    display: none;
+  }
+
+  .group-header {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  .group-header h2 {
+    margin:0;
+    font-size:24px;
+    line-height:1.1;
+    font-weight:800;
+    color:#1f1f1f;
+  }
+
+  .badge.called {
+    padding:2px 8px;
+    border-radius:999px;
+    background:#e9a74e;
+    color:#fff;
+    font-size:11px;
+    font-weight:700;
+  }
+
+  .empty {
+    font-size:13px;
+    opacity:.7;
+    margin-bottom:10px;
+  }
+
+  .item {
+    border-radius: 12px;
+    background: #fff;
+    border: 2px solid #f0eadf;
+    padding: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.04);
+    transition: all 0.3s ease;
+  }
+
+  .item.called {
+    border-color: #e8a10a;
+    background: #fff9e5;
+    box-shadow: 0 0 18px rgba(232,161,10,0.4);
+    animation: pulseBorder 1.5s infinite;
+  }
+
+  @keyframes pulseBorder {
+    0%   { box-shadow: 0 0 8px rgba(232,161,10,0.4); }
+    50%  { box-shadow: 0 0 20px rgba(232,161,10,0.7); }
+    100% { box-shadow: 0 0 8px rgba(232,161,10,0.4); }
+  }
+
+  .row.select {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+
+  .row.timer-row {
+    margin-top:4px;
+    font-size:12px;
+    opacity:.8;
+  }
+
+  .code {
+    font-weight:800;
+    font-size:16px;
+  }
+
+  .name {
+    flex:1;
+  }
+
+  .pax {
+    font-size:13px;
+    opacity:.8;
+  }
+
+  .actions {
+    margin-top:10px;
+    display:flex;
+    gap:8px;
+  }
+
+  .actions .btn {
+    padding:6px 10px;
+    border-radius:8px;
+    border:none;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:600;
+  }
+
+  .btn.call { background:#e9a74e; color:#fff; }
+  .btn.seat { background:#3b271c; color:#fff; }
+  .btn.skip { background:#ccc; color:#333; }
+
+  /* status pill styles */
+  .status-pill {
+    padding:.35rem .6rem;
+    border-radius:999px;
+    border:1px solid #e3e3e3;
+    font-size:.8rem;
+  }
+  .status-pill.is-waiting {
+    background:#fff;
+    color:#666;
+  }
+  .status-pill.is-called {
+    background:#ffe9c7;
+    border-color:#ffcc80;
+    color:#8a5500;
+  }
+
+  /* Tablet portrait tweaks (optional; NOT hiding anything) */
+  @media (max-width: 1280px) and (orientation: portrait) {
+    html, body {
+      height: 100%;
+    }
+    body { margin: 0; }
+    .page { padding: 12px 16px 24px; }
+    #staff-root { max-width: 100%; }
+    #group-tabs { margin-top: 12px; }
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1>QSys Staff Panel</h1>
+      <div class="branch"><%= branchName || branchCode %></div>
+      <div class="date"><%= dayKey %></div>
+    </div>
+    <div class="topbar-right">
+      <div>Logged in as: <strong><%= user && (user.name || user.email) %></strong></div>
+      <a id="open-display" class="btn btn-open" href="#">Open External Display</a>
+      <form method="POST" action="/staff/logout">
+        <button class="btn btn-logout" type="submit">Log out</button>
+      </form>
+    </div>
+  </header>
+
+  <div class="page">
+    <main id="staff-root" data-branch="<%= branchCode %>" data-date ="<%= dayKey %>">
+      <% const GROUPS = ['P','A','B','C']; %>
+
+      <!-- PILL BAR (P / A / B / C) -->
+      <nav id="group-tabs">
+        <% GROUPS.forEach((group, idx) => { %>
+          <button
+            class="group-tab <%= idx === 0 ? 'is-active' : '' %>"
+            data-group="<%= group %>">
+            <% if (group === 'P') { %>P<% } else { %><%= group %><% } %>
+          </button>
+        <% }) %>
+      </nav>
+
+      <!-- ONE GROUP AT A TIME -->
+      <section class="groups">
+        <% GROUPS.forEach((group, idx) => {
+             const list = (tickets && tickets[group]) || [];
+        %>
+          <section
+            class="group-column group-view <%= idx === 0 ? '' : 'is-hidden' %>"
+            data-group="<%= group %>">
+
+            <div class="group-header">
+              <h2>Group <%= group %></h2>
+              <% if (group === 'P') { %><span class="badge called">PRIORITY</span><% } %>
+            </div>
+
+            <% if (list.length === 0) { %>
+              <div class="empty">No guests in this group.</div>
+            <% } %>
+
+            <ul class="list">
+              <% list.forEach(t => {
+                   const rawNum = t.queueNum ?? t.number ?? t.queueNumber ?? null;
+                   const padded = (n,d)=>String(n).padStart(d,'0');
+                   const code = rawNum ? (group + padded(rawNum,2)) : (t.code || '—');
+                   const status = (t.status || 'waiting');
+                   const startMs = t.timestamp || t.createdAt || 0;
+              %>
+                <li class="item <%= (t.status||'waiting')==='called' ? 'called' : '' %>"
+                    data-id="<%= t.id %>"
+                    data-group="<%= t.group %>">
+                  <div class="row select">
+                    <span class="code">#<%= code %></span>
+                    <span class="name"><%= t.name || 'Guest' %></span>
+                    <span class="pax">(<%= t.pax || 1 %> pax)</span>
+                    <% if (t.group === 'P') { %><span class="badge called">P</span><% } %>
+                    <span class="status-pill <%= (t.status||'waiting')==='called' ? 'is-called' : 'is-waiting' %>"
+                          data-status="<%= t.status || 'waiting' %>">
+                      <%= (t.status || 'waiting').toUpperCase() %>
+                    </span>
+                  </div>
+                  <div class="row timer-row">
+                    <span class="timer" data-start="<%= startMs %>"><%= t.waitTimeStr %></span>
+                  </div>
+                  <div class="actions">
+                    <button class="btn call" data-action="call">Call</button>
+                    <button class="btn seat" data-action="seat">Seat</button>
+                    <button class="btn skip" data-action="skip">Skip</button>
+                  </div>
+                </li>
+              <% }) %>
+            </ul>
+          </section>
+        <% }) %>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    window.QSYS_STAFF = {
+      branchCode: "<%= branchCode %>",
+      dayKey: "<%= dayKey %>",
+      customToken: "<%= authCustomToken %>"
+    };
+    window.FIREBASE_WEB_CONFIG = <%- JSON.stringify(firebaseWebConfig || {}) %>;
+  </script>
+
+  <script type="module" src="/public_js/realtime.js"></script>
+
+  <!-- Tab switching -->
+  <script>
+  (function(){
+    const tabs  = Array.from(document.querySelectorAll('#group-tabs .group-tab'));
+    const views = Array.from(document.querySelectorAll('.group-view'));
+    if (!tabs.length || !views.length) return;
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const g = tab.dataset.group;
+        tabs.forEach(t => t.classList.toggle('is-active', t === tab));
+        views.forEach(v => v.classList.toggle('is-hidden', v.dataset.group !== g));
+      });
+    });
+  })();
+  </script>
+
+  <!-- Call / Uncall patch -->
+  <script>
+  (function(){
+    const root = document.getElementById('staff-root');
+    if (!root) return;
+
+    const BRANCH = root.getAttribute('data-branch') || '';
+    const DAYKEY = root.getAttribute('data-date')   || '';
+
+    function setStatusUI(li, status){
+      const pill = li.querySelector('.status-pill');
+      if (pill){
+        pill.dataset.status = status;
+        pill.textContent = status.toUpperCase();
+        pill.classList.toggle('is-waiting', status === 'waiting');
+        pill.classList.toggle('is-called',  status === 'called');
+      }
+      li.classList.toggle('called', status === 'called');
+    }
+
+    async function postCallApi({ branch, group, id, toggle }){
+      const r = await fetch('/api/call', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json' },
+        body: JSON.stringify({ branch, group, id, toggle })
+      });
+      if (!r.ok) {
+        const msg = await r.text().catch(()=> r.statusText);
+        throw new Error(`HTTP ${r.status}: ${msg}`);
+      }
+      const js = await r.json().catch(()=> ({}));
+      if (js && js.ok === false) throw new Error(js.error || 'Update failed');
+      return js;
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.btn.call, .btn-call, [data-action="call"]');
+      if (!btn) return;
+
+      const li = btn.closest('.item');
+      const groupEl = li && li.closest('.group-column');
+      const pill = li && li.querySelector('.status-pill');
+      if (!li || !groupEl || !pill) return;
+
+      const group = groupEl.getAttribute('data-group');
+      const id    = li.getAttribute('data-id');
+
+      const current = pill.dataset.status || 'waiting';
+      const next    = (current === 'called') ? 'waiting' : 'called';
+
+      const touched = [];
+      if (next === 'called') {
+        groupEl.querySelectorAll('.item.called').forEach(other => {
+          if (other !== li) {
+            touched.push(other);
+            setStatusUI(other, 'waiting');
+          }
+        });
+      }
+
+      setStatusUI(li, next);
+
+      try {
+        await postCallApi({
+          branch: BRANCH,
+          group,
+          id,
+          toggle: (current === 'called')
+        });
+      } catch (err) {
+        console.error('[call] server update failed:', err);
+        setStatusUI(li, current);
+        touched.forEach(o => setStatusUI(o, 'called'));
+      }
+    });
+  })();
+  </script>
+  <script>
+(function(){
+  const root = document.getElementById('staff-root');
+  if (!root) return;
+
+  const BRANCH = root.getAttribute('data-branch') || '';
+  const DAYKEY = root.getAttribute('data-date') || '';
+
+  async function postJSON(url) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' }
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(()=> '');
+      throw new Error(`HTTP ${r.status}: ${t}`);
+    }
+    return r.json().catch(()=> ({}));
+  }
+
+  document.addEventListener('click', async (e) => {
+
+    // -----------------------
+    // SEAT
+    // -----------------------
+    if (e.target.closest('.btn.seat')) {
+      const li = e.target.closest('.item');
+      const group = li.closest('.group-column').dataset.group;
+      const id = li.dataset.id;
+
+      try {
+        await postJSON(`/staff/${BRANCH}/seat/${group}/${id}`);
+        li.remove();   // remove from UI after seat
+      } catch(err) {
+        console.error('Seat failed:', err);
+        alert('Failed to seat guest: ' + err.message);
+      }
+      return;
+    }
+
+    // -----------------------
+    // SKIP
+    // -----------------------
+    if (e.target.closest('.btn.skip')) {
+      const li = e.target.closest('.item');
+      const group = li.closest('.group-column').dataset.group;
+      const id = li.dataset.id;
+
+      try {
+        await postJSON(`/staff/${BRANCH}/skip/${group}/${id}`);
+        li.remove(); // remove from UI after skip
+      } catch(err) {
+        console.error('Skip failed:', err);
+        alert('Failed to skip guest: ' + err.message);
+      }
+      return;
+    }
+
+  });
+})();
+</script>
+<!-- Call sound (plays only when a ticket is called) -->
+<audio
+  id="call-sound"
+  src="/public_media/sounds/callsound.mp3"
+  preload="auto">
+</audio>
+</body>
+</html>

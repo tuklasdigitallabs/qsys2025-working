@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Now Serving — <%= branchName || branchCode %></title>
+  <link rel="stylesheet" href="/public_css/style.css" />
+
+<style>
+  :root{
+    --primary:#e49424;
+    --bg:#0b0b0b;
+    --panel:#141212;
+    --fg:#f3eee8;
+    --muted:#9e9487;
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+
+  html,body{
+    margin:0;
+    padding:0;
+    height:100%;
+    background:var(--bg);
+    color:var(--fg);
+    font-family: Helvetica, Arial, sans-serif;
+  }
+
+  /* MAIN LAYOUT – LARGE / TV */
+  .display-wrap{
+    height:100dvh;
+    height:100svh;
+    display:grid;
+    grid-template-rows: 1fr 2fr; /* TOP = 1/3 , BOTTOM = 2/3 */
+    overflow:hidden;
+  }
+
+  .top{
+    padding:18px;
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:14px;
+    overflow:hidden;
+  }
+
+  .cell{
+    background:var(--panel);
+    border-radius:18px;
+    position:relative;
+    box-shadow:0 8px 28px rgba(0,0,0,.35);
+    padding:18px 20px;
+  }
+
+  .cell .hdr{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:10px;
+  }
+
+  .cell .hdr .tag{
+    font-weight:800;
+    letter-spacing:.06em;
+  }
+
+  .cell .hdr .note{
+    color:var(--muted);
+    font-size:14px;
+  }
+
+  .code{
+    font-size:clamp(42px,8vmin,120px);
+    font-weight:900;
+    line-height:1;
+    letter-spacing:.02em;
+  }
+
+  .sub{
+    margin-top:6px;
+    font-size:clamp(16px,2.4vmin,24px);
+    color:var(--muted);
+  }
+
+  /* next-in-line list */
+  .next-list{
+    list-style:none;
+    margin:10px 0 0 0;
+    padding:0;
+    font-size:18px;
+    font-weight:bold;
+    color:#ddd;
+    opacity:.75;
+  }
+  .next-list li{ margin:2px 0; }
+
+  .pulse{
+    position:absolute;
+    inset:0;
+    border-radius:18px;
+    box-shadow:0 0 0 0 rgba(228,148,36,.35);
+    animation:pulse 1.8s ease-out 1;
+    pointer-events:none;
+  }
+
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 rgba(228,148,36,.35) }
+    70%{ box-shadow:0 0 0 36px rgba(228,148,36,0) }
+    100%{ box-shadow:0 0 0 0 rgba(228,148,36,0) }
+  }
+
+  .bottom{
+    position:relative;
+    background:#000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+  }
+
+  .brandbar{
+    position:absolute;
+    top:0; left:0; right:0;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:8px 14px;
+    color:#ddd;
+    font-size:14px;
+    background:linear-gradient(180deg, rgba(0,0,0,.5), transparent);
+    z-index:2;
+  }
+
+  .brand{
+    display:flex;
+    gap:10px;
+    align-items:center;
+  }
+
+  .brand img{
+    height:36px;
+    display:none;
+  }
+
+  .clock{
+    font-variant-numeric:tabular-nums;
+  }
+
+  video{
+    width:100%;
+    height:100%;
+    object-fit:contain;
+    background:#000;
+  }
+
+  .offline{
+    position:fixed;
+    top:0; left:0; right:0;
+    background:#b04040;
+    color:#fff;
+    text-align:center;
+    padding:6px 10px;
+    font-weight:700;
+    display:none;
+    z-index:3;
+  }
+
+  /* Enable-sound button (overlay) */
+  .sound-toggle {
+    position:fixed;
+    right:14px;
+    bottom:14px;
+    z-index:4;
+    padding:6px 10px;
+    border-radius:999px;
+    border:none;
+    background:rgba(0,0,0,.7);
+    color:#fff;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .sound-toggle:hover {
+    background:rgba(0,0,0,.9);
+  }
+
+  /* RESPONSIVE – NARROW / SMALL DISPLAYS */
+  @media (max-width:1024px){
+    .display-wrap{
+      grid-template-rows: 1fr 2fr; /* keep ratio on tablets too */
+    }
+
+    .top{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      grid-auto-rows:minmax(0,1fr);
+      gap:10px;
+      padding:12px;
+    }
+
+    .cell{
+      padding:12px 14px;
+      border-radius:14px;
+    }
+
+    .code{
+      font-size:clamp(32px,7vw,72px);
+    }
+
+    .sub{
+      font-size:clamp(14px,2.8vw,20px);
+    }
+
+    .next-list{
+      font-size:14px;
+    }
+
+    .brandbar{
+      padding:6px 10px;
+      font-size:13px;
+    }
+
+    .bottom{
+      align-items:stretch;
+      justify-content:stretch;
+    }
+
+    .bottom video{
+      width:100%;
+      height:100%;
+      object-fit:cover; /* fill and crop for vertical clips */
+    }
+  }
+
+  /* EXTRA SMALL – limit how many waiting items we show */
+  @media (max-width:700px){
+    .next-list li:nth-child(n+3){
+      display:none;
+    }
+  }
+  
+  /* SMARTPHONE VIEW — HIDE WAITING QUEUE */
+  @media (max-width: 540px) {
+    .next-list {
+      display: none !important;
+    }
+
+    .cell {
+      padding: 10px 12px;
+    }
+
+    .code {
+      font-size: clamp(40px, 10vw, 72px);
+    }
+  }
+  
+  /* Make the group label bigger & centered */
+.top .cell .hdr {
+  text-align: center;
+}
+
+.top .cell .tag {
+  font-size: 28px;      /* increase size */
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  display: block;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+/* If you want it even bigger on large screens */
+@media (min-width: 1200px) {
+  .top .cell .tag {
+    font-size: 34px;
+  }
+}
+
+.cell .hdr {
+  display:flex;
+  justify-content:center;   /* center the label */
+  align-items:center;
+  margin-bottom:10px;
+}
+
+/* hide the timestamp completely */
+.cell .hdr .note {
+  display:none !important;
+}
+
+</style>
+
+
+</head>
+
+<body class="display">
+  <div id="offline" class="offline">You’re offline. Reconnecting…</div>
+
+  <!-- one-time sound unlock -->
+  <button id="enable-sound" class="sound-toggle">Enable Sound</button>
+
+  <div class="display-wrap">
+
+    <!-- TOP: GROUP CELLS -->
+    <section class="top" id="top">
+  <% const GROUPS = ['P','A','B','C']; %>
+  <% const GROUP_LABELS = {
+    P: 'Priority Lane',
+    A: 'A | 1–2 PAX',
+    B: 'B | 3–4 PAX',
+    C: 'C | >4 PAX'
+  }; %>
+
+  <% GROUPS.forEach(g => { %>
+    <div class="cell" data-group="<%= g %>">
+      <div class="hdr">
+        <div class="tag"><%= GROUP_LABELS[g] || ('Group ' + g) %></div>
+        <div class="note" id="ts-<%= g %>" aria-hidden="true"></div>
+      </div>
+      <div class="code" id="code-<%= g %>">—</div>
+      <div class="sub" id="sub-<%= g %>">Waiting…</div>
+      <div class="pulse" id="pulse-<%= g %>" style="display:none"></div>
+    </div>
+  <% }) %>
+</section>
+
+
+    <!-- BOTTOM: VIDEO PLAYER -->
+    <section class="bottom">
+      <div class="brandbar">
+        <div class="brand">
+          <img id="logo" alt="Branch Logo"/>
+          <div><strong><%= branchName || branchCode %></strong></div>
+        </div>
+      </div>
+
+      <video id="adPlayer" autoplay muted playsinline></video>
+    </section>
+
+  </div>
+
+  <script>
+    window.DISPLAY = {
+      branchCode: "<%= branchCode %>",
+      apiJson: "/display/<%= encodeURIComponent(branchCode) %>/json",
+      apiVideos: "/api/media/display/playlist"
+    };
+  </script>
+
+  <!-- Fix viewport fluctuations -->
+  <script>
+    (function(){
+      function setVH(){
+        document.documentElement.style.setProperty('--vh', (window.innerHeight*0.01)+'px');
+      }
+      setVH();
+      window.addEventListener('resize', setVH);
+    })();
+  </script>
+
+  <!-- Fit + Fullscreen support (optional) -->
+  <script>
+    (function(){
+      const v = document.getElementById('adPlayer');
+      const fitBtn = document.getElementById('fitBtn');
+      if (!v) return;
+      let fit = 'contain';
+      function apply(){
+        v.style.objectFit = fit;
+        fitBtn && (fitBtn.textContent = fit === 'contain' ? 'Fill' : 'Fit');
+      }
+      apply();
+      if (fitBtn){
+        fitBtn.addEventListener('click', ()=>{
+          fit = (fit==='contain'?'cover':'contain');
+          apply();
+        });
+      }
+      v.addEventListener('dblclick', ()=>{
+        fit = (fit==='contain'?'cover':'contain');
+        apply();
+      });
+    })();
+  </script>
+
+  <script src="/public_js/display-grid.js" defer></script>
+
+  <!-- Playlist Player -->
+  <script>
+    (function(){
+      const v = document.getElementById('adPlayer');
+      if (!v || !window.DISPLAY) return;
+
+      const api = window.DISPLAY.apiVideos;
+      let playlist = [];
+      let version = '';
+      let idx = 0;
+
+     function play(url){
+  if (!url) return;
+  if (v.getAttribute('src') !== url) v.setAttribute('src', url);
+
+  // If user enabled sound, unmute the video
+  if (window.SOUND_ENABLED) {
+    v.muted = false;
+    v.volume = 1.0;
+    v.removeAttribute('muted');
+  }
+
+  const p = v.play();
+  if (p && p.catch) p.catch(()=>{});
+}
+
+
+
+      function merge(newItems){
+        if (!playlist.length){
+          playlist = newItems.slice();
+          idx = 0;
+          return true;
+        }
+        const have = new Set(playlist);
+        let changed = false;
+        for (const u of newItems) if (!have.has(u)){
+          playlist.push(u);
+          changed = true;
+        }
+        const current = playlist[idx];
+        if (current && !newItems.includes(current)){
+          idx = 0;
+          changed = true;
+        }
+        return changed;
+      }
+
+      async function refresh(){
+        try{
+          const r = await fetch(`${api}?t=${Date.now()}`, {cache:'no-store'});
+          const data = await r.json();
+
+          let items, ver;
+            if (Array.isArray(data)){
+              items = data;
+              ver = items.join('|');
+            } else {
+              items = Array.isArray(data.items) ? data.items : [];
+              ver = String(data.version || '');
+            }
+            
+            // 🚫 Ignore non-mp4s (like .mov) to avoid playback issues
+            items = items.filter(u => u.toLowerCase().endsWith('.mp4'));
+            
+            if (!items.length) return;
+
+
+          if (ver !== version){
+            version = ver;
+            const fresh = (playlist.length === 0);
+            merge(items);
+            if (fresh && playlist.length) play(playlist[idx]);
+          }
+
+        } catch(e){}
+      }
+
+      v.removeAttribute('loop');
+      v.addEventListener('ended', ()=>{
+        if (!playlist.length) return;
+        idx = (idx + 1) % playlist.length;
+        play(playlist[idx]);
+      });
+
+      refresh();
+      setInterval(refresh, 8000);
+    })();
+  </script>
+
+  <!-- 🔊 Sound for called tickets on external display -->
+  <audio id="display-call-sound"
+         src="/public_media/sounds/callsound.mp3"
+         preload="auto"></audio>
+
+</body>
+</html>

@@ -1,0 +1,31 @@
+// Guest Project Firestore Security Rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Public: read branch metadata
+    match /branches/{branch} {
+      allow read: if true;           // anyone can read branches
+      allow write: if false;         // managed by admins out-of-band
+    }
+
+    // Queues: allow guests to CREATE only
+    match /queues/{branch}/{date}/{group} {
+      // items
+      match /items/{queueId} {
+        allow create: if true;       // guests can register
+        allow read: if false;        // pages render on server; no client reads needed
+        allow update, delete: if false;
+      }
+      // meta/counter
+      match /meta/{doc} {
+        allow read, write: if false; // only server (Admin SDK) should touch counters
+      }
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

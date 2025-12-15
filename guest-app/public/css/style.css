@@ -1,0 +1,60 @@
+:root{
+  --brand:#de9019;
+  --text:#1f2937;
+  --bg:#f7f7f7;
+  --card:#ffffff;
+  --muted:#6b7280;
+  --border:#e5e7eb;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--text);background:var(--bg)}
+.container{max-width:720px;margin:24px auto;padding:16px}
+.container.small{max-width:640px}
+.card{
+  background:var(--card);
+  border-radius:20px;
+  padding:28px 24px;
+  box-shadow:0 6px 24px rgba(0,0,0,0.06);
+  border:1px solid var(--border);
+}
+.title{font-size:40px;font-weight:800;margin:8px 0 8px;color:var(--brand)}
+.branch{font-size:20px;margin:0 0 20px}
+.label{display:block;margin:16px 0 6px;font-weight:600}
+.req{color:#ef4444;margin-left:4px}
+.optional{color:var(--muted)}
+.input{
+  width:100%;padding:16px;border:1px solid var(--border);border-radius:12px;
+  font-size:16px;outline:none;background:#fff
+}
+.input:focus{border-color:var(--brand);box-shadow:0 0 0 4px rgba(222,144,25,0.12)}
+.btn{
+  display:block;width:100%;margin-top:20px;padding:16px 18px;border-radius:12px;
+  background:var(--brand);color:#fff;font-weight:700;font-size:20px;border:none;cursor:pointer;
+  box-shadow:0 8px 20px rgba(222,144,25,0.25);
+  text-align:center;text-decoration:none
+}
+.btn:hover{filter:brightness(0.98)}
+.btn.outline{background:#fff;color:var(--brand);border:2px solid var(--brand);box-shadow:none}
+.alert{
+  background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:12px 14px;border-radius:10px;margin:10px 0 4px
+}
+/* Ticket styles */
+.ticket-bg{background:linear-gradient(#fbf6ee,#f7f7f7)}
+.ticket-card{
+  background:var(--card);
+  border-radius:24px;
+  padding:28px 24px 24px;
+  box-shadow:0 12px 48px rgba(222,144,25,0.18);
+  border:1px solid var(--border);
+  text-align:center
+}
+.check{
+  width:56px;height:56px;border-radius:50%;border:3px solid var(--brand);
+  display:flex;align-items:center;justify-content:center;margin:8px auto 6px;font-size:26px;color:var(--brand);font-weight:800
+}
+.ticket-box{
+  margin:18px auto 10px;background:#fff7ed;border:2px solid #f5d3a4;padding:22px;border-radius:18px;display:inline-block;min-width:260px
+}
+.ticket-code{font-size:80px;font-weight:800;color:var(--brand);letter-spacing:4px}
+.for{font-size:20px;margin:12px 0 16px}
+.note{color:var(--muted);font-size:14px;line-height:1.5}

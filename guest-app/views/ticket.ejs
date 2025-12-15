@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your Queue Number</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/public/css/style.css">
+
+  <style>
+    /* Extra styling for the new info blocks */
+    .ticket-meta {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #444;
+    }
+
+    .ticket-meta p {
+      margin: 2px 0;
+    }
+
+    .ticket-group-tag {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: #f3f3f3;
+    }
+
+    .ticket-group-tag.priority {
+      background: #ffe7bf;
+    }
+
+    .queue-stats {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #eee;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .queue-stats p {
+      margin: 4px 0;
+    }
+
+    .now-serving {
+      margin-top: 14px;
+      font-size: 12px;
+    }
+
+    .now-serving h2 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+
+    .now-serving table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .now-serving th,
+    .now-serving td {
+      padding: 3px 2px;
+    }
+
+    .now-serving th {
+      font-weight: 600;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+
+    .now-serving td.code {
+      font-weight: 700;
+    }
+  </style>
+</head>
+
+<body
+  class="ticket-bg"
+  data-branch="<%= ticketMeta.branchCode %>"
+  data-date="<%= ticketMeta.date %>"
+  data-group="<%= ticketMeta.group %>"
+  data-id="<%= ticketMeta.id %>"
+>
+  <main class="container small">
+    <div class="ticket-card">
+      <div class="check">✓</div>
+      <h1 class="title">Queue Number</h1>
+
+      <!-- MAIN TICKET BOX -->
+      <div class="ticket-box">
+        <div class="ticket-code"><%= ticket.code %></div>
+      </div>
+
+      <!-- BASIC INFO -->
+      <p class="for">
+        For:
+        <strong><%= ticket.name %></strong>
+      </p>
+
+      <div class="ticket-meta">
+        <% if (ticket.branchName || ticket.branchCode) { %>
+          <p>
+            Branch:
+            <strong>
+              <%= ticket.branchName || ticket.branchCode %>
+            </strong>
+          </p>
+        <% } %>
+
+        <% if (ticket.pax) { %>
+          <p>
+            Party size:
+            <strong><%= ticket.pax %> pax</strong>
+          </p>
+        <% } %>
+
+        <% if (ticket.group) { %>
+          <p>
+            Group:
+            <span class="ticket-group-tag <%= ticket.group === 'P' ? 'priority' : '' %>">
+              Group <%= ticket.group %>
+              <% if (ticket.group === 'P') { %>
+                &nbsp;– Priority
+              <% } %>
+            </span>
+          </p>
+        <% } %>
+      </div>
+
+      <!-- POSITION + ETA (client-side realtime fills these) -->
+      <div class="queue-stats">
+        <p>
+          You are
+          <strong>
+            <span id="js-position">—</span>
+            of
+            <span id="js-total">—</span>
+          </strong>
+          in Group <%= ticket.group %>.
+        </p>
+
+        <p>
+          Estimated waiting time:
+          <strong><span id="js-eta">—</span> minutes</strong>
+          (estimate only).
+        </p>
+
+        <p>
+          Currently serving in Group <%= ticket.group %>:
+          <strong><span id="js-now-serving">—</span></strong>
+        </p>
+      </div>
+
+      <!-- BUTTON + INSTRUCTIONS -->
+      <a href="/register/<%= ticket.branchCode %>" class="btn outline">
+        Thank you for registering!
+      </a>
+
+      <p class="note">
+        When your queue number is called, please present this screen to our staff.<br>
+        <em>You may take a screenshot of your queue number or simply keep this page open while you wait.</em><br><br>
+        <small>
+          Please stay within the vicinity of the restaurant. If you miss your turn, you may be moved down the queue
+          or asked to re-register.
+        </small>
+      </p>
+    </div>
+  </main>
+
+  <!-- Firebase + realtime JS -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    window.QSYS_TICKET = {
+      branchCode: "<%= ticketMeta.branchCode %>",
+      date: "<%= ticketMeta.date %>",
+      group: "<%= ticketMeta.group %>",
+      ticketId: "<%= ticketMeta.id %>",
+      firebaseConfig: <%- JSON.stringify(firebaseClientConfig || {}) %>
+    };
+  </script>
+
+  <script src="/public/js/ticket-realtime.js"></script>
+</body>
+</html>

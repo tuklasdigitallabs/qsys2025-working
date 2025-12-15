@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Staff Login</title>
+  <link rel="stylesheet" href="/public_css/style.css" />
+</head>
+<body class="login">
+  <div class="card">
+    <h1>Staff Login</h1>
+    <% if (error) { %><div class="error"><%= error %></div><% } %>
+    <form method="POST" action="/staff/login">
+      <input type="email" name="email" placeholder="Email" required />
+      <input type="password" name="password" placeholder="Password" required />
+      <button type="submit">Log In</button>
+    </form>
+  </div>
+</body>
+</html>

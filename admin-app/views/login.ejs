@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>QSys Admin Login</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="stylesheet" href="/public/css/style.css">
+  </head>
+  <body class="login-body">
+    <main class="login-container">
+      <div class="card">
+        <h1 class="title">QSys Admin</h1>
+        <p class="subtitle">Sign in to manage branches, users &amp; reports.</p>
+
+        <% if (error) { %>
+          <div class="alert"><%= error %></div>
+        <% } %>
+
+        <form method="post" action="/login" class="form">
+          <label>
+            <span>Email</span>
+            <input type="email" name="email" required autocomplete="username">
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" name="password" required autocomplete="current-password">
+          </label>
+          <button type="submit" class="btn btn-primary">Login</button>
+        </form>
+      </div>
+    </main>
+  </body>
+</html>

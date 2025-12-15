@@ -1,0 +1,8 @@
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION BEGIN
+PassengerAppRoot "/home/onegourmet/public_html/guest.onegourmetph.com"
+PassengerBaseURI "/"
+PassengerNodejs "/home/onegourmet/nodevenv/public_html/guest.onegourmetph.com/20/bin/node"
+PassengerAppType node
+PassengerStartupFile server.js
+PassengerAppLogFile "/home/onegourmet/guest.log"
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END

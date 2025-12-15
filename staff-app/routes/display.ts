@@ -1,0 +1,1 @@
+<display.ts content from assistant's message>

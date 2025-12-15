@@ -1,0 +1,62 @@
+:root{--brand:#e49424;--bg:#fbf7ef;--text:#222}
+*{box-sizing:border-box}body{margin:0;font:16px/1.4 Inter,system-ui,Segoe UI,Arial;background:var(--bg);color:var(--text)}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:linear-gradient(90deg,#eeb85e,#e6a447);color:#fff}
+.topbar .brand{font-weight:800}
+.topbar .meta{display:flex;gap:12px;align-items:center}
+.btn{background:#e09322;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:600;cursor:pointer}
+.btn.ghost{background:#fff1;border:1px solid #fff;color:#fff}
+.columns{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;max-width:1200px;margin:28px auto;padding:0 16px}
+.col{background:#fff;border-radius:18px;padding:18px;box-shadow:0 12px 30px rgba(0,0,0,.06)}
+.col h2{font-size:22px;text-align:center;margin:4px 0 14px;color:#b27a25}
+.empty{padding:16px 14px;border-radius:12px;background:#faf7f0;color:#666}
+.list{list-style:none;margin:0;padding:0}
+.item{margin:10px 0;border-radius:14px;background:#fff;box-shadow:0 8px 22px rgba(0,0,0,.06);overflow:hidden}
+.row.select{display:flex;gap:12px;align-items:center;width:100%;padding:12px 14px;background:#fff;border:0;cursor:pointer;text-align:left}
+.code{font-weight:900;color:#b14a04}.name{font-weight:700;color:#555}
+.badge{margin-left:auto;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #ddd;color:#666}
+.badge.called{border-color:#e09322;color:#e09322}.badge.skipped{border-color:#999;color:#999}
+.actions{display:none;padding:10px 14px;border-top:1px solid #f1f1f1;background:#fff}
+.item.open .actions{display:flex;gap:8px}
+.btn.call{background:#e09322}.btn.seat{background:#2e7d32}.btn.skip{background:#8e8e8e}
+/* login */
+body.login{display:grid;place-items:center;min-height:100vh;background:radial-gradient(1000px 300px at 50px 50px,#fff,transparent),var(--bg)}
+.card{width:min(680px,92vw);background:#fff8ea;border-radius:18px;box-shadow:0 18px 40px rgba(0,0,0,.08);padding:26px}
+.card h1{margin:0 0 18px;color:#d78b1f}
+.card input{width:100%;padding:14px;border-radius:10px;border:1px solid #e8c59a;margin:8px 0;background:#fff}
+.card button{width:100%;padding:14px;border-radius:12px;background:#e09322;color:#fff;border:0;font-weight:800;margin-top:8px}
+.error{background:#fff3f3;border:1px solid #ffb7b7;color:#b80000;padding:10px 12px;border-radius:10px;margin-bottom:10px}
+/* display */
+.display-bar{padding:18px 24px;text-align:center;font-weight:900;letter-spacing:.15em;color:#fff;background:linear-gradient(90deg,#e1a03b,#e6c26a)}
+.display-main{display:grid;place-items:center;min-height:70vh}
+.display .big{font-size:min(14vw,140px);font-weight:900;color:#936118}
+.display .sub{margin-top:16px;font-size:min(4.5vw,32px);color:#8e764c}
+
+/* Groups grid */
+.groups {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));  /* 4 fixed columns */
+  gap: 20px;
+  align-items: start;
+}
+
+/* Card sizing so varying heights don't break the row */
+.group-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Responsive fallbacks */
+@media (max-width: 1200px) {
+  .groups { grid-template-columns: repeat(3, minmax(220px, 1fr)); }
+}
+@media (max-width: 900px) {
+  .groups { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
+}
+@media (max-width: 560px) {
+  .groups { grid-template-columns: 1fr; }
+}
+
+/* Optional: lock card widths so 4 columns fit ~1120px wide */
+.group-column .group-header { min-width: 0; }
+.queue-card { min-width: 0; }

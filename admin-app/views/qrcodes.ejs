@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>QSys Admin - QR Codes</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="stylesheet" href="/public/css/style.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1>QSys Admin</h1>
+        <% if (user) { %>
+          <div class="subtitle"><%= user.name %> (<%= user.email %>)</div>
+        <% } %>
+      </div>
+      <div class="topbar-right">
+        <form method="post" action="/logout">
+          <button class="btn btn-ghost" type="submit">Logout</button>
+        </form>
+      </div>
+    </header>
+
+    <nav class="nav">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/branches">Branches</a>
+      <a href="/users">Users</a>
+      <a href="/reports">Reports</a>
+      <a href="/qrcodes">QR Codes</a>
+    </nav>
+
+    <main class="page">
+      <section class="card">
+        <h2>QR Codes</h2>
+        <p>Display &amp; manage guest-app QR codes per branch here later.</p>
+      </section>
+    </main>
+
+    <script src="/public/js/main.js"></script>
+  </body>
+</html>

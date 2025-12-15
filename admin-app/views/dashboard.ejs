@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>QSys Admin - Dashboard</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="stylesheet" href="/public/css/style.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1>QSys Admin</h1>
+        <% if (user) { %>
+          <div class="subtitle"><%= user.name %> (<%= user.email %>)</div>
+        <% } %>
+      </div>
+      <div class="topbar-right">
+        <form method="post" action="/logout">
+          <button class="btn btn-ghost" type="submit">Logout</button>
+        </form>
+      </div>
+    </header>
+
+    <nav class="nav">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/branches">Branches</a>
+      <a href="/users">Users</a>
+      <a href="/reports">Reports</a>
+      <a href="/qrcodes">QR Codes</a>
+    </nav>
+
+    <main class="page">
+      <section class="grid grid-2">
+        <div class="card">
+          <h2>Overview</h2>
+          <p>Date (Manila): <strong><%= today %></strong></p>
+          <p>Total branches: <strong><%= branches.length %></strong></p>
+        </div>
+
+        <div class="card">
+          <h2>Quick Links</h2>
+          <ul class="list">
+            <li><a href="/branches">Manage Branches</a></li>
+            <li><a href="/users">Manage Admin Users</a></li>
+            <li><a href="/reports">View Reports</a></li>
+            <li><a href="/qrcodes">View QR Codes</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="card mt">
+        <h2>Branches</h2>
+        <% if (!branches.length) { %>
+          <p>No branches configured yet.</p>
+        <% } else { %>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% branches.forEach(b => { %>
+                <tr>
+                  <td><%= b.code || b.id %></td>
+                  <td><%= b.name || '-' %></td>
+                  <td><%= b.active === false ? 'Inactive' : 'Active' %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        <% } %>
+      </section>
+    </main>
+
+    <script src="/public/js/main.js"></script>
+  </body>
+</html>

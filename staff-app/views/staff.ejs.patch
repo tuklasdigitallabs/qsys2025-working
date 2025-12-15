@@ -1,0 +1,9 @@
+--- a/views/staff.ejs
++++ b/views/staff.ejs
+@@
+- <main class="staff-page">
++ <main id="staff-root" class="staff-page" data-branch="<%= branchCode %>">
+@@
+- </body>
++   <script type="module" src="/public_js/staff.live.js"></script>
++ </body>
