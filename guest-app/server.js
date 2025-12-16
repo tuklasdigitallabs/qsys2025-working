@@ -3,11 +3,17 @@
  * Firestore:
  *   queues/{branchCode}/{yyyy-mm-dd}/{group}/items/{queueId}
  *   counters at: queues/{branchCode}/{date}/{group}/meta/counter
+ *
+ * Admin Aggregates (single Firebase project):
+ *   adminDailyStats/{YYYY-MM-DD__BRANCHCODE}
+ *     - totals.reserved / seated / skipped
+ *     - waitingNow {P,A,B,C}
+ *     - events subcollection for idempotency
  */
 
-console.log("ðŸš¨ server.js executing!");
-console.log("  â®• __filename:", __filename);
-console.log("  â®• process.cwd():", process.cwd());
+console.log("🚨 server.js executing!");
+console.log("  • __filename:", __filename);
+console.log("  • process.cwd():", process.cwd());
 
 const path = require('path');
 const express = require('express');
@@ -19,7 +25,6 @@ const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc);
 dayjs.extend(timezone);
-
 
 // --- ensure fetch exists on Node < 18 (cPanel often uses 16) ---
 let _fetch = global.fetch;
@@ -146,8 +151,6 @@ async function getAvgWaitMinutes(branchCode, group, ticket) {
   }
 }
 
-
-
 // ---- Express app ----
 const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -271,14 +274,103 @@ async function resolveBranch(param) {
 // ---------- Queue helpers ----------
 function groupFromPax(pax, priority) {
   console.log(`[DEBUG] groupFromPax(): pax=${pax}, priority=${priority}`);
-  // âœ… Priority guests always go to group P
+  // ✅ Priority guests always go to group P
   if (priority === 'senior' || priority === 'pwd') {
-    console.log('[DEBUG] â†’ Priority detected â†’ group P');
+    console.log('[DEBUG] → Priority detected → group P');
     return 'P';
-    }
+  }
   if (pax <= 2) return 'A';
   if (pax <= 4) return 'B';
   return 'C';
+}
+
+// ============================================================
+// ADMIN DAILY AGGREGATES (single Firebase project)
+// - adminDailyStats/{YYYY-MM-DD__BRANCHCODE}
+// - idempotent increments via subcollection events/{action}__{ticketId}
+// ============================================================
+
+function adminStatsDocId(dateKey, branchCode) {
+  return `${dateKey}__${branchCode}`;
+}
+
+async function computeWaitingNow(branchCode, dateKey) {
+  const GROUPS = ['P', 'A', 'B', 'C'];
+  const waitingNow = { P: 0, A: 0, B: 0, C: 0 };
+
+  for (const g of GROUPS) {
+    const col = db.collection(`queues/${branchCode}/${dateKey}/${g}/items`);
+    const q = col.where('status', 'in', ['waiting', 'called']);
+
+    // Prefer aggregation count() if supported; fallback to fetching docs
+    try {
+      const agg = await q.count().get();
+      waitingNow[g] = Number(agg.data().count || 0);
+    } catch {
+      const snap = await q.get();
+      waitingNow[g] = snap.size;
+    }
+  }
+  return waitingNow;
+}
+
+async function recordAdminStatEvent({ branchCode, dateKey, action, ticketId, branchName }) {
+  try {
+    const statsId = adminStatsDocId(dateKey, branchCode);
+    const statsRef = db.collection('adminDailyStats').doc(statsId);
+    const eventRef = statsRef.collection('events').doc(`${action}__${ticketId}`);
+
+    const inc = admin.firestore.FieldValue.increment;
+    const incPayload =
+      action === 'reserved' ? { 'totals.reserved': inc(1) } :
+      action === 'seated' ? { 'totals.seated': inc(1) } :
+      action === 'skipped' ? { 'totals.skipped': inc(1) } :
+      null;
+
+    await db.runTransaction(async (tx) => {
+      const ev = await tx.get(eventRef);
+      if (ev.exists) return; // already counted
+
+      tx.set(eventRef, {
+        action,
+        ticketId,
+        branchCode,
+        dateKey,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      tx.set(statsRef, {
+        dateKey,
+        branchCode,
+        branchName: branchName || branchCode,
+        totals: { reserved: 0, seated: 0, skipped: 0 },
+        waitingNow: { P: 0, A: 0, B: 0, C: 0 },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      if (incPayload) tx.set(statsRef, incPayload, { merge: true });
+      tx.set(statsRef, { updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    });
+  } catch (e) {
+    console.warn('[adminStats] recordAdminStatEvent error:', e.message);
+  }
+}
+
+async function updateAdminWaitingNowSnapshot(branchCode, dateKey, branchName) {
+  try {
+    const waitingNow = await computeWaitingNow(branchCode, dateKey);
+    const statsId = adminStatsDocId(dateKey, branchCode);
+
+    await db.collection('adminDailyStats').doc(statsId).set({
+      dateKey,
+      branchCode,
+      branchName: branchName || branchCode,
+      waitingNow,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch (e) {
+    console.warn('[adminStats] updateAdminWaitingNowSnapshot error:', e.message);
+  }
 }
 
 // ---------- Quick debug endpoints ----------
@@ -312,7 +404,7 @@ app.post('/register/:branchParam', async (req, res) => {
 
     // Validation
     if (!name || !pax) {
-      console.log('[DEBUG] Missing required fields â†’ name/pax');
+      console.log('[DEBUG] Missing required fields → name/pax');
       return res
         .status(400)
         .render('register', { branch, error: 'Please fill in all required fields.', form: { name, pax, phone, priority } });
@@ -326,14 +418,15 @@ app.post('/register/:branchParam', async (req, res) => {
         .render('register', { branch, error: 'Number of guests must be a positive number.', form: { name, pax, phone, priority } });
     }
 
-    // âœ… Priority overrides pax logic
+    // ✅ Priority overrides pax logic
     const group = groupFromPax(paxNum, priority);
     console.log('[DEBUG] Computed group =', group);
 
     const { meta, items, date } = pathRefs(branch.code, group);
-    console.log(`[DEBUG] Firestore path â†’ queues/${branch.code}/${date}/${group}/items/...`);
+    console.log(`[DEBUG] Firestore path → queues/${branch.code}/${date}/${group}/items/...`);
 
     let queueNumber, ticketId;
+
     await db.runTransaction(async (tx) => {
       const metaSnap = await tx.get(meta);
       const current = metaSnap.exists ? metaSnap.get('current') || 0 : 0;
@@ -355,6 +448,7 @@ app.post('/register/:branchParam', async (req, res) => {
 
       const now = dayjs().tz(DEFAULT_TZ);
       const newDocRef = items.doc();
+
       tx.set(newDocRef, {
         code,
         branchCode: branch.code,     // canonical
@@ -375,7 +469,19 @@ app.post('/register/:branchParam', async (req, res) => {
       ticketId = newDocRef.id;
     });
 
-    console.log(`[DEBUG] Redirect â†’ /ticket/${branch.code}/${date}/${group}/${ticketId}`);
+    // --- Admin aggregates: reserved + waitingNow snapshot (fire-and-forget) ---
+    recordAdminStatEvent({
+      branchCode: branch.code,
+      dateKey: date,
+      action: 'reserved',
+      ticketId,
+      branchName: branch.name
+    }).catch(e => console.warn('[adminStats] reserved error:', e.message));
+
+    updateAdminWaitingNowSnapshot(branch.code, date, branch.name)
+      .catch(e => console.warn('[adminStats] waitingNow post-register error:', e.message));
+
+    console.log(`[DEBUG] Redirect → /ticket/${branch.code}/${date}/${group}/${ticketId}`);
     res.redirect(`/ticket/${branch.code}/${date}/${group}/${ticketId}`);
   } catch (err) {
     console.error('[POST /register] error:', err);
@@ -435,7 +541,6 @@ async function getEtaMinutes(branchCode, group, positionInGroup) {
   return eta;
 }
 
-
 async function computeTicketStatus(branchCode, date, group, id) {
   const { items } = pathRefs(branchCode, group, date);
 
@@ -485,7 +590,7 @@ async function computeTicketStatus(branchCode, date, group, id) {
 
   if (!pos) pos = total || 1;
 
-    // 3) Ask the staff app what is currently being served (cache-busted)
+  // 3) Ask the staff app what is currently being served (cache-busted)
   let nowServingCode = null;
   try {
     const baseUrl =
@@ -522,8 +627,7 @@ async function computeTicketStatus(branchCode, date, group, id) {
     console.warn('[computeTicketStatus] display fetch error:', e.message);
   }
 
-
-   // 4) ETA calculation using historical EMA per bucket + group
+  // 4) ETA calculation using historical EMA per bucket + group
   const avgPerTicket = await getAvgWaitMinutes(branchCode, group, ticket);
   const etaMinutes   = pos * avgPerTicket;
 
@@ -553,8 +657,6 @@ async function computeTicketStatus(branchCode, date, group, id) {
   };
 }
 
-
-
 app.get('/ticket/:branchCode/:date/:group/:id', async (req, res) => {
   const { branchCode, date, group, id } = req.params;
   try {
@@ -576,7 +678,6 @@ app.get('/ticket/:branchCode/:date/:group/:id', async (req, res) => {
   }
 });
 
-
 app.get('/api/ticket-status/:branchCode/:date/:group/:id', async (req, res) => {
   const { branchCode, date, group, id } = req.params;
 
@@ -597,8 +698,6 @@ app.get('/api/ticket-status/:branchCode/:date/:group/:id', async (req, res) => {
     res.status(500).json({ ok: false, error: 'Server error' });
   }
 });
-
-
 
 // Health
 app.get('/healthz', (_req, res) => res.json({ ok: true, initError: INIT_ERROR || null }));

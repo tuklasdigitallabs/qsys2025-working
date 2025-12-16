@@ -182,3 +182,14 @@ body {
   color: #7d1c00;
   font-size: 13px;
 }
+
+.kpis { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.kpi { background:#fff7eb; border:1px solid #ead3b0; border-radius:14px; padding:10px 12px; }
+.kpi-label { font-size:12px; color:#6a5540; font-weight:600; }
+.kpi-val { font-size:20px; font-weight:800; margin-top:2px; color:#2b211a; }
+
+.field { display:flex; flex-direction:column; gap:6px; font-size:13px; }
+.field input { padding:8px 10px; border-radius:10px; border:1px solid #e1cfb7; font-size:14px; }
+
+.muted { color:#6a5540; font-size:13px; }
+.table-wrap { overflow:auto; }

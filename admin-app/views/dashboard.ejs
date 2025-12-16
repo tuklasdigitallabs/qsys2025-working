@@ -30,50 +30,62 @@
     </nav>
 
     <main class="page">
-      <section class="grid grid-2">
-        <div class="card">
-          <h2>Overview</h2>
-          <p>Date (Manila): <strong><%= today %></strong></p>
-          <p>Total branches: <strong><%= branches.length %></strong></p>
-        </div>
+  <section class="grid grid-2">
+    <div class="card">
+      <h2>Daily Overview</h2>
+      <p>Date (Manila): <strong id="dk"><%= today %></strong></p>
 
-        <div class="card">
-          <h2>Quick Links</h2>
-          <ul class="list">
-            <li><a href="/branches">Manage Branches</a></li>
-            <li><a href="/users">Manage Admin Users</a></li>
-            <li><a href="/reports">View Reports</a></li>
-            <li><a href="/qrcodes">View QR Codes</a></li>
-          </ul>
-        </div>
-      </section>
+      <div class="kpis">
+        <div class="kpi"><div class="kpi-label">Reserved</div><div class="kpi-val" id="kpi-reserved">—</div></div>
+        <div class="kpi"><div class="kpi-label">Seated</div><div class="kpi-val" id="kpi-seated">—</div></div>
+        <div class="kpi"><div class="kpi-label">Skipped</div><div class="kpi-val" id="kpi-skipped">—</div></div>
+      </div>
 
-      <section class="card mt">
-        <h2>Branches</h2>
-        <% if (!branches.length) { %>
-          <p>No branches configured yet.</p>
-        <% } else { %>
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% branches.forEach(b => { %>
-                <tr>
-                  <td><%= b.code || b.id %></td>
-                  <td><%= b.name || '-' %></td>
-                  <td><%= b.active === false ? 'Inactive' : 'Active' %></td>
-                </tr>
-              <% }) %>
-            </tbody>
-          </table>
-        <% } %>
-      </section>
-    </main>
+      <div class="kpis mt">
+        <div class="kpi"><div class="kpi-label">Waiting P</div><div class="kpi-val" id="kpi-wp">—</div></div>
+        <div class="kpi"><div class="kpi-label">Waiting A</div><div class="kpi-val" id="kpi-wa">—</div></div>
+        <div class="kpi"><div class="kpi-label">Waiting B</div><div class="kpi-val" id="kpi-wb">—</div></div>
+        <div class="kpi"><div class="kpi-label">Waiting C</div><div class="kpi-val" id="kpi-wc">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Filters</h2>
+      <label class="field">
+        <span>Date (Manila)</span>
+        <input id="dateKey" type="date" value="<%= today %>">
+      </label>
+      <button class="btn btn-primary mt" id="btnRefresh">Refresh</button>
+
+      <p class="muted mt" id="dashStatus">—</p>
+    </div>
+  </section>
+
+  <section class="card mt">
+    <h2>By Branch</h2>
+    <div class="table-wrap">
+      <table class="table" id="branchTable">
+        <thead>
+          <tr>
+            <th>Branch</th>
+            <th>Reserved</th>
+            <th>Seated</th>
+            <th>Skipped</th>
+            <th>Waiting P</th>
+            <th>Waiting A</th>
+            <th>Waiting B</th>
+            <th>Waiting C</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="9">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
 
     <script src="/public/js/main.js"></script>
   </body>
