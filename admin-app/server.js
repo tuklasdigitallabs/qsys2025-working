@@ -187,6 +187,42 @@ function normalizeUserDoc(docSnap) {
   };
 }
 
+// ---------------- Admin Daily Stats Helpers ----------------
+function adminStatsDocId(dateKey, branchCode) {
+  return `${dateKey}__${branchCode}`;
+}
+
+async function countWaitingNow(branchCode, dateKey) {
+  const GROUPS = ['P', 'A', 'B', 'C'];
+  const waitingNow = { P: 0, A: 0, B: 0, C: 0 };
+
+  for (const g of GROUPS) {
+    const col = db.collection(`queues/${branchCode}/${dateKey}/${g}/items`);
+    const q = col.where('status', 'in', ['waiting', 'called']);
+
+    // Prefer aggregation count() if supported; fallback to fetching docs
+    try {
+      const agg = await q.count().get();
+      waitingNow[g] = Number(agg.data().count || 0);
+    } catch {
+      const snap = await q.get();
+      waitingNow[g] = snap.size;
+    }
+  }
+  return waitingNow;
+}
+
+async function getBranchesList() {
+  const branchesSnap = await db.collection('branches').get();
+  return branchesSnap.docs.map(d => {
+    const data = d.data() || {};
+    return {
+      code: data.branchCode || data.code || d.id,
+      name: data.name || data.branchName || data.displayName || (data.branchCode || data.code || d.id)
+    };
+  });
+}
+
 // ---------------- Auth Routes ----------------
 app.get('/', (_req, res) => res.redirect('/dashboard'));
 
@@ -340,6 +376,60 @@ app.get('/api/admin/daily-stats', requireAdminApi, async (req, res) => {
 
   } catch (e) {
     console.error('[api daily-stats] error:', e);
+    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
+  }
+});
+
+// ---------------- API: Recalculate Daily Stats (ADMIN ONLY) ----------------
+// POST /api/admin/recalc-daily?date=YYYY-MM-DD
+// Recomputes waitingNow from queues + reserved = waitingTotal + seated + skipped
+app.post('/api/admin/recalc-daily', requireAdminApi, async (req, res) => {
+  try {
+    const dateKey = String(req.query.date || '').trim() || manilaDayKey();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+      return res.status(400).json({ ok: false, error: 'Invalid date (YYYY-MM-DD)' });
+    }
+
+    const branches = await getBranchesList();
+    const results = [];
+
+    for (const b of branches) {
+      const statsId = adminStatsDocId(dateKey, b.code);
+      const statsRef = db.collection('adminDailyStats').doc(statsId);
+
+      // Preserve seated/skipped as currently tracked (from events via staff actions)
+      const prevSnap = await statsRef.get();
+      const prev = prevSnap.exists ? (prevSnap.data() || {}) : {};
+      const totals = prev.totals || {};
+
+      const seated = Number(totals.seated || 0);
+      const skipped = Number(totals.skipped || 0);
+
+      const waitingNow = await countWaitingNow(b.code, dateKey);
+      const waitingTotal = waitingNow.P + waitingNow.A + waitingNow.B + waitingNow.C;
+
+      // Reserved should represent "total tickets today" that still matter:
+      // waiting/ called + seated + skipped
+      const reserved = waitingTotal + seated + skipped;
+
+      // IMPORTANT: write nested object, DO NOT write "totals.reserved" as a literal field.
+      await statsRef.set({
+        dateKey,
+        branchCode: b.code,
+        branchName: b.name,
+        totals: { reserved, seated, skipped },
+        waitingNow,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      results.push({ branchCode: b.code, reserved, seated, skipped, waitingNow });
+    }
+
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, dateKey, results });
+
+  } catch (e) {
+    console.error('[api recalc-daily] error:', e);
     return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
   }
 });
