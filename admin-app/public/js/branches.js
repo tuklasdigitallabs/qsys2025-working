@@ -1,9 +1,5 @@
 (function () {
   function el(id) { return document.getElementById(id); }
-  function setText(id, val) {
-    var node = el(id);
-    if (node) node.textContent = (val === undefined || val === null) ? '—' : String(val);
-  }
 
   function fmtUpdated(v) {
     if (!v) return '—';
@@ -19,143 +15,234 @@
     return String(v);
   }
 
-  async function apiList() {
-    var resp = await fetch('/api/admin/branches?t=' + Date.now(), {
-      credentials: 'same-origin',
-      headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }
-    });
-    if (resp.status === 401) { window.location.href = '/login'; return null; }
-    return await resp.json();
+  function toast(msg, type) {
+    var wrap = el('toastWrap');
+    if (!wrap) return;
+
+    var box = document.createElement('div');
+    box.textContent = msg;
+    box.style.padding = '10px 12px';
+    box.style.borderRadius = '12px';
+    box.style.boxShadow = '0 8px 24px rgba(0,0,0,.12)';
+    box.style.background = '#fff';
+    box.style.border = '1px solid rgba(0,0,0,.08)';
+    box.style.fontWeight = '600';
+    box.style.maxWidth = '360px';
+
+    if (type === 'success') box.style.borderColor = 'rgba(0,160,80,.35)';
+    if (type === 'error')   box.style.borderColor = 'rgba(200,0,0,.35)';
+    if (type === 'info')    box.style.borderColor = 'rgba(30,90,200,.25)';
+
+    wrap.appendChild(box);
+    setTimeout(function () {
+      try { wrap.removeChild(box); } catch {}
+    }, 3500);
+  }
+
+  function setForm(b) {
+    el('f-code').value = (b.branchCode || '').toUpperCase();
+    el('f-name').value = b.branchName || '';
+    el('f-slug').value = b.slug || '';
+    el('f-location').value = b.location || '';
+    el('f-active').value = (b.active === false) ? 'false' : 'true';
+    el('lastUpdated').textContent = 'Updated: ' + fmtUpdated(b.updatedAt);
+  }
+
+  function clearForm() {
+    el('f-code').value = '';
+    el('f-name').value = '';
+    el('f-slug').value = '';
+    el('f-location').value = '';
+    el('f-active').value = 'true';
+    el('lastUpdated').textContent = '—';
+  }
+
+  function getPayload() {
+    var code = (el('f-code').value || '').trim().toUpperCase();
+    var name = (el('f-name').value || '').trim();
+    var slug = (el('f-slug').value || '').trim().toLowerCase();
+    var location = (el('f-location').value || '').trim();
+    var active = (el('f-active').value || 'true') !== 'false';
+
+    return { branchCode: code, branchName: name, slug: slug, location: location, active: active };
   }
 
   async function apiSave(payload) {
-    var resp = await fetch('/api/admin/branches?t=' + Date.now(), {
+    var resp = await fetch('/api/admin/branches/save?t=' + Date.now(), {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (resp.status === 401) { window.location.href = '/login'; return null; }
-    return await resp.json();
+
+    if (resp.status === 401) {
+      window.location.href = '/login';
+      return null;
+    }
+
+    var ct = (resp.headers.get('content-type') || '').toLowerCase();
+    if (ct.indexOf('application/json') === -1) {
+      var text = '';
+      try { text = await resp.text(); } catch {}
+      throw new Error('Expected JSON, got: ' + ct + ' ' + text.slice(0, 80));
+    }
+
+    var json = await resp.json();
+    if (!resp.ok || !json.ok) {
+      throw new Error(json.error || 'Save failed');
+    }
+    return json;
   }
 
-  async function apiDelete(code) {
-    var resp = await fetch('/api/admin/branches/' + encodeURIComponent(code) + '?t=' + Date.now(), {
-      method: 'DELETE',
+  async function apiReload() {
+    var resp = await fetch('/api/admin/branches?t=' + Date.now(), {
       credentials: 'same-origin',
-      headers: { 'Accept': 'application/json' }
+      headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }
     });
-    if (resp.status === 401) { window.location.href = '/login'; return null; }
-    return await resp.json();
+
+    if (resp.status === 401) {
+      window.location.href = '/login';
+      return null;
+    }
+
+    var json = await resp.json();
+    if (!resp.ok || !json.ok) throw new Error(json.error || 'Reload failed');
+    return json.branches || [];
   }
 
   function renderTable(branches) {
     var table = el('branchesTable');
-    var tbody = table ? table.querySelector('tbody') : null;
+    if (!table) return;
+    var tbody = table.querySelector('tbody');
     if (!tbody) return;
 
-    if (!branches || !branches.length) {
+    if (!branches.length) {
       tbody.innerHTML = '<tr><td colspan="5">No branches found.</td></tr>';
       return;
     }
 
     tbody.innerHTML = '';
-    branches.forEach(function (b) {
-      var code = (b.branchCode || b.code || b.id || '').toString();
-      var name = (b.name || b.branchName || '').toString();
-      var slug = (b.slug || '').toString();
+    branches.sort(function (a, b) {
+      return String(a.branchName || '').localeCompare(String(b.branchName || ''));
+    });
 
+    for (var i = 0; i < branches.length; i++) {
+      var b = branches[i] || {};
       var tr = document.createElement('tr');
+      tr.className = 'branch-row';
+      tr.tabIndex = 0;
+
+      var packed = {
+        branchCode: (b.branchCode || b.code || b.id || '').toUpperCase(),
+        branchName: b.branchName || b.name || (b.branchCode || b.code || b.id || ''),
+        slug: b.slug || '',
+        location: b.location || '',
+        active: (b.active === false) ? false : true,
+        updatedAt: b.updatedAt || null
+      };
+      tr.dataset.branch = JSON.stringify(packed);
 
       function td(txt) {
         var x = document.createElement('td');
-        x.textContent = (txt === undefined || txt === null) ? '—' : String(txt);
+        x.textContent = (txt === undefined || txt === null || txt === '') ? '—' : String(txt);
         return x;
       }
 
-      tr.appendChild(td(code));
-      tr.appendChild(td(name));
-      tr.appendChild(td(slug));
-      tr.appendChild(td(fmtUpdated(b.updatedAt)));
+      tr.appendChild(td(packed.branchCode));
+      tr.appendChild(td(packed.branchName));
+      tr.appendChild(td(packed.slug));
+      tr.appendChild(td(packed.active ? 'Yes' : 'No'));
+      tr.appendChild(td(fmtUpdated(packed.updatedAt)));
 
-      var actions = document.createElement('td');
-
-      var btnEdit = document.createElement('button');
-      btnEdit.className = 'btn btn-ghost';
-      btnEdit.textContent = 'Edit';
-      btnEdit.addEventListener('click', function () {
-        el('branchCode').value = code;
-        el('branchName').value = name;
-        el('branchSlug').value = slug;
-        setText('branchStatus', 'Loaded into form.');
-      });
-
-      var btnDel = document.createElement('button');
-      btnDel.className = 'btn btn-ghost';
-      btnDel.textContent = 'Delete';
-      btnDel.addEventListener('click', async function () {
-        if (!confirm('Delete branch ' + code + '?')) return;
-        setText('branchStatus', 'Deleting…');
-        try {
-          var out = await apiDelete(code);
-          if (!out || !out.ok) throw new Error(out && out.error ? out.error : 'Delete failed');
-          setText('branchStatus', 'Deleted: ' + code);
-          await reload();
-        } catch (e) {
-          console.error(e);
-          setText('branchStatus', 'Delete failed. Check console.');
-        }
-      });
-
-      actions.appendChild(btnEdit);
-      actions.appendChild(btnDel);
-
-      tr.appendChild(actions);
       tbody.appendChild(tr);
-    });
+    }
+
+    bindRowClicks();
   }
 
-  async function reload() {
-    setText('branchStatus', 'Loading…');
-    try {
-      var data = await apiList();
-      if (!data || !data.ok) throw new Error((data && data.error) || 'List failed');
-      renderTable(data.branches || []);
-      setText('branchStatus', 'Updated: ' + new Date().toLocaleString());
-    } catch (e) {
-      console.error(e);
-      setText('branchStatus', 'Load failed. Check console.');
+  function bindRowClicks() {
+    var rows = document.querySelectorAll('.branch-row');
+    for (var i = 0; i < rows.length; i++) {
+      (function (row) {
+        function act() {
+          try {
+            var b = JSON.parse(row.dataset.branch || '{}');
+            setForm(b);
+            toast('Loaded branch: ' + (b.branchCode || ''), 'info');
+          } catch (e) {
+            console.error('row parse error', e);
+          }
+        }
+        row.addEventListener('click', act);
+        row.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            act();
+          }
+        });
+      })(rows[i]);
     }
   }
 
-  async function save() {
-    var code = (el('branchCode').value || '').trim().toUpperCase();
-    var name = (el('branchName').value || '').trim();
-    var slug = (el('branchSlug').value || '').trim().toLowerCase();
+  async function onSave(ev) {
+    ev.preventDefault();
 
-    if (!code) return setText('branchStatus', 'Branch Code is required.');
-    if (!name) return setText('branchStatus', 'Branch Name is required.');
+    var payload = getPayload();
+    if (!payload.branchCode || !payload.branchName) {
+      toast('Branch Code and Branch Name are required.', 'error');
+      return;
+    }
 
-    setText('branchStatus', 'Saving…');
+    var msg =
+      'Save this branch?\n\n' +
+      'Code: ' + payload.branchCode + '\n' +
+      'Name: ' + payload.branchName + '\n' +
+      'Slug: ' + (payload.slug || '(auto)') + '\n' +
+      'Active: ' + (payload.active ? 'Yes' : 'No');
+
+    if (!window.confirm(msg)) return;
+
     try {
-      var out = await apiSave({ branchCode: code, name: name, slug: slug });
-      if (!out || !out.ok) throw new Error(out && out.error ? out.error : 'Save failed');
-      setText('branchStatus', 'Saved: ' + code);
-      await reload();
+      await apiSave(payload);
+      toast('Saved: ' + payload.branchCode, 'success');
+
+      // reload table to show updates
+      var branches = await apiReload();
+      renderTable(branches);
+
+      // keep form updated timestamp fresh (best effort)
+      el('lastUpdated').textContent = 'Updated: just now';
     } catch (e) {
       console.error(e);
-      setText('branchStatus', 'Save failed. Check console.');
+      toast('Error: ' + (e.message || e), 'error');
+    }
+  }
+
+  async function onReload() {
+    try {
+      var branches = await apiReload();
+      renderTable(branches);
+      toast('Branches reloaded.', 'success');
+    } catch (e) {
+      console.error(e);
+      toast('Reload error: ' + (e.message || e), 'error');
     }
   }
 
   function boot() {
-    var btnSave = el('btnSaveBranch');
-    if (btnSave) btnSave.addEventListener('click', save);
+    var form = el('branchForm');
+    if (form) form.addEventListener('submit', onSave);
 
-    var btnReload = el('btnReloadBranches');
-    if (btnReload) btnReload.addEventListener('click', reload);
+    var btnClear = el('btnClear');
+    if (btnClear) btnClear.addEventListener('click', function () {
+      clearForm();
+      toast('Cleared form.', 'info');
+    });
 
-    reload();
+    var btnReload = el('btnReload');
+    if (btnReload) btnReload.addEventListener('click', onReload);
+
+    bindRowClicks();
   }
 
   if (document.readyState === 'loading') {

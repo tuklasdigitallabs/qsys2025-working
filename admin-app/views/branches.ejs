@@ -1,83 +1,130 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>QSys Admin - Branches</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <link rel="stylesheet" href="/public/css/style.css">
-  </head>
-  <body>
-    <header class="topbar">
-      <div class="topbar-left">
-        <h1>QSys Admin</h1>
-        <% if (user) { %>
-          <div class="subtitle"><%= user.name %> (<%= user.email %>)</div>
-        <% } %>
-      </div>
-      <div class="topbar-right">
-        <form method="post" action="/logout">
-          <button class="btn btn-ghost" type="submit">Logout</button>
-        </form>
-      </div>
-    </header>
+<head>
+  <meta charset="utf-8">
+  <title>QSys Admin - Branches</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/public/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1>QSys Admin</h1>
+      <% if (user) { %>
+        <div class="subtitle"><%= user.name %> (<%= user.email %>)</div>
+      <% } %>
+    </div>
+    <div class="topbar-right">
+      <form method="post" action="/logout">
+        <button class="btn btn-ghost" type="submit">Logout</button>
+      </form>
+    </div>
+  </header>
 
-    <nav class="nav">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/branches" class="active">Branches</a>
-      <a href="/users">Users</a>
-      <a href="/reports">Reports</a>
-      <a href="/qrcodes">QR Codes</a>
-    </nav>
+  <nav class="nav">
+    <a href="/dashboard">Dashboard</a>
+    <a href="/branches" class="active">Branches</a>
+    <a href="/users">Users</a>
+    <a href="/reports">Reports</a>
+    <a href="/qrcodes">QR Codes</a>
+  </nav>
 
-    <main class="page">
-      <section class="grid grid-2">
-        <div class="card">
-          <h2>Add / Update Branch</h2>
+  <main class="page">
+    <section class="grid grid-2">
+      <div class="card">
+        <h2>Add / Update Branch</h2>
 
+        <form id="branchForm" class="mt">
           <label class="field">
             <span>Branch Code (doc id)</span>
-            <input id="branchCode" placeholder="YL-MOA" />
+            <input id="f-code" name="branchCode" placeholder="YL-MOA" autocomplete="off" required>
           </label>
 
           <label class="field">
             <span>Branch Name</span>
-            <input id="branchName" placeholder="Yakiniku Like SM Mall of Asia" />
+            <input id="f-name" name="branchName" placeholder="Yakiniku Like SM Mall of Asia" autocomplete="off" required>
           </label>
 
           <label class="field">
             <span>Slug (optional)</span>
-            <input id="branchSlug" placeholder="moa" />
+            <input id="f-slug" name="slug" placeholder="yl-moa / moa" autocomplete="off">
           </label>
 
-          <button class="btn btn-primary mt" id="btnSaveBranch">Save Branch</button>
+          <label class="field">
+            <span>Location (optional)</span>
+            <input id="f-location" name="location" placeholder="Mall / City / Notes" autocomplete="off">
+          </label>
 
-          <p class="muted mt" id="branchStatus">—</p>
-        </div>
+          <label class="field">
+            <span>Status</span>
+            <select id="f-active" name="active">
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
+            </select>
+          </label>
 
-        <div class="card">
-          <h2>Branches</h2>
-          <button class="btn btn-ghost" id="btnReloadBranches">Reload</button>
-
-          <div class="table-wrap mt">
-            <table class="table" id="branchesTable">
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Slug</th>
-                  <th>Updated</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td colspan="5">Loading…</td></tr>
-              </tbody>
-            </table>
+          <div class="row mt" style="gap:10px; align-items:center;">
+            <button class="btn btn-primary" id="btnSave" type="submit">Save Branch</button>
+            <button class="btn btn-ghost" id="btnClear" type="button">Clear</button>
+            <div class="muted" id="formHint" style="margin-left:auto;">Click a branch on the right to edit.</div>
           </div>
-        </div>
-      </section>
-    </main>
 
-    <script src="/public/js/branches.js"></script>
-  </body>
+          <p class="muted mt" id="lastUpdated">—</p>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Branches</h2>
+        <p class="muted">Tip: click a row to edit.</p>
+
+        <div class="table-wrap mt">
+          <table class="table" id="branchesTable">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Slug</th>
+                <th>Active</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!branches || !branches.length) { %>
+                <tr><td colspan="5">No branches found.</td></tr>
+              <% } else { %>
+                <% branches.forEach(function(b){ %>
+                  <tr class="branch-row"
+                      tabindex="0"
+                      data-branch='<%- JSON.stringify({
+                        branchCode: b.branchCode || b.code || b.id,
+                        branchName: b.branchName || b.name || b.branchCode || b.code || b.id,
+                        slug: b.slug || "",
+                        location: b.location || "",
+                        active: (b.active === false) ? false : true,
+                        updatedAt: b.updatedAt || null
+                      }).replace(/</g,"\\u003c") %>'>
+                    <td><%= b.branchCode || b.code || b.id %></td>
+                    <td><%= b.branchName || b.name || (b.branchCode || b.code || b.id) %></td>
+                    <td><%= b.slug || '—' %></td>
+                    <td><%= (b.active === false) ? 'No' : 'Yes' %></td>
+                    <td><%= (b.updatedAt && b.updatedAt._seconds) ? new Date((b.updatedAt._seconds*1000)).toLocaleString() : '—' %></td>
+                  </tr>
+                <% }); %>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="row mt" style="justify-content:flex-end;">
+          <button class="btn btn-ghost" id="btnReload" type="button">Reload</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Toast container (no CSS changes needed; inline minimal) -->
+  <div id="toastWrap" style="position:fixed; right:16px; bottom:16px; display:flex; flex-direction:column; gap:10px; z-index:9999;"></div>
+
+  <script src="/public/js/branches.js"></script>
+</body>
 </html>
