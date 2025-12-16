@@ -228,37 +228,41 @@ async function recordAdminStatEvent({ branchCode, dateKey, action, ticketId, bra
     const statsRef = db.collection('adminDailyStats').doc(statsId);
     const eventRef = statsRef.collection('events').doc(`${action}__${ticketId}`);
 
-    const inc = admin.firestore.FieldValue.increment;
-    const incPayload =
-    action === 'seated'   ? { totals: { seated:   inc(1) } } :
-    action === 'skipped'  ? { totals: { skipped:  inc(1) } } :
-    action === 'reserved' ? { totals: { reserved: inc(1) } } :
-    null;
+   const inc = admin.firestore.FieldValue.increment;
 
-    await db.runTransaction(async (tx) => {
-      const ev = await tx.get(eventRef);
-      if (ev.exists) return; // already counted
+const incPayload =
+  action === 'reserved' ? { 'totals.reserved': inc(1) } :
+  action === 'seated'   ? { 'totals.seated': inc(1) } :
+  action === 'skipped'  ? { 'totals.skipped': inc(1) } :
+  null;
 
-      tx.set(eventRef, {
-        action,
-        ticketId,
-        branchCode,
-        dateKey,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
+await db.runTransaction(async (tx) => {
+  const ev = await tx.get(eventRef);
+  if (ev.exists) return;
 
-      tx.set(statsRef, {
-        dateKey,
-        branchCode,
-        branchName: branchName || branchCode,
-        totals: { reserved: 0, seated: 0, skipped: 0 },
-        waitingNow: { P: 0, A: 0, B: 0, C: 0 },
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
+  tx.set(eventRef, {
+    action, ticketId, branchCode, dateKey,
+    createdAt: admin.firestore.FieldValue.serverTimestamp()
+  });
 
-      if (incPayload) tx.set(statsRef, incPayload, { merge: true });
-      tx.set(statsRef, { updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    });
+  // ensure doc exists
+  tx.set(statsRef, {
+    dateKey,
+    branchCode,
+    branchName: branchName || branchCode,
+    totals: { reserved: 0, seated: 0, skipped: 0 },
+    waitingNow: { P: 0, A: 0, B: 0, C: 0 },
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
+
+  // ✅ THIS is the important part
+  if (incPayload) tx.update(statsRef, incPayload);
+
+  tx.set(statsRef, {
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
+});
+
   } catch (e) {
     console.warn('[adminStats] recordAdminStatEvent error:', e.message);
   }
