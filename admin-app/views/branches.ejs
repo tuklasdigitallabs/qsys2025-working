@@ -23,42 +23,61 @@
 
     <nav class="nav">
       <a href="/dashboard">Dashboard</a>
-      <a href="/branches">Branches</a>
+      <a href="/branches" class="active">Branches</a>
       <a href="/users">Users</a>
       <a href="/reports">Reports</a>
       <a href="/qrcodes">QR Codes</a>
     </nav>
 
     <main class="page">
-      <section class="card">
-        <h2>Branches</h2>
-        <% if (!branches || !branches.length) { %>
-          <p>No branches configured.</p>
-        <% } else { %>
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Location</th>
-                <th>Active</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% branches.forEach(b => { %>
+      <section class="grid grid-2">
+        <div class="card">
+          <h2>Add / Update Branch</h2>
+
+          <label class="field">
+            <span>Branch Code (doc id)</span>
+            <input id="branchCode" placeholder="YL-MOA" />
+          </label>
+
+          <label class="field">
+            <span>Branch Name</span>
+            <input id="branchName" placeholder="Yakiniku Like SM Mall of Asia" />
+          </label>
+
+          <label class="field">
+            <span>Slug (optional)</span>
+            <input id="branchSlug" placeholder="moa" />
+          </label>
+
+          <button class="btn btn-primary mt" id="btnSaveBranch">Save Branch</button>
+
+          <p class="muted mt" id="branchStatus">—</p>
+        </div>
+
+        <div class="card">
+          <h2>Branches</h2>
+          <button class="btn btn-ghost" id="btnReloadBranches">Reload</button>
+
+          <div class="table-wrap mt">
+            <table class="table" id="branchesTable">
+              <thead>
                 <tr>
-                  <td><%= b.code || b.id %></td>
-                  <td><%= b.name || '-' %></td>
-                  <td><%= b.location || '-' %></td>
-                  <td><%= b.active === false ? 'No' : 'Yes' %></td>
+                  <th>Code</th>
+                  <th>Name</th>
+                  <th>Slug</th>
+                  <th>Updated</th>
+                  <th></th>
                 </tr>
-              <% }) %>
-            </tbody>
-          </table>
-        <% } %>
+              </thead>
+              <tbody>
+                <tr><td colspan="5">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
     </main>
 
-    <script src="/public/js/main.js"></script>
+    <script src="/public/js/branches.js"></script>
   </body>
 </html>

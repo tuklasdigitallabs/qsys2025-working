@@ -330,11 +330,116 @@ app.get('/dashboard', requireAdminPage, (req, res) => {
   });
 });
 
+// ✅ Branches page (real page now)
+app.get('/branches', requireAdminPage, (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.render('branches', { user: _req.session.user });
+});
+
 // placeholders so nav doesn’t 404
-app.get('/branches', requireAdminPage, (_req, res) => res.send('Branches page placeholder'));
 app.get('/users', requireAdminPage, (_req, res) => res.send('Users page placeholder'));
 app.get('/reports', requireAdminPage, (_req, res) => res.send('Reports page placeholder'));
 app.get('/qrcodes', requireAdminPage, (_req, res) => res.send('QR Codes page placeholder'));
+
+// ============================================================
+// API: Branches
+// Collection: branches/{BRANCH_CODE}
+// Fields we will write (compatible w/ guest + staff):
+// - branchCode (canonical)
+// - code       (same as branchCode, for older readers)
+// - name       (human name)
+// - branchName (same as name, for guest-app reader)
+// - slug       (lowercase short)
+// - updatedAt / createdAt
+// ============================================================
+
+function normalizeBranchInput(body) {
+  const branchCode = String(body.branchCode || body.code || '').trim().toUpperCase();
+  const nameRaw = String(body.name || body.branchName || '').trim();
+  const slugRaw = String(body.slug || '').trim().toLowerCase();
+
+  const name = nameRaw;
+  const slug =
+    slugRaw ||
+    nameRaw
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')  // spaces -> hyphens
+      .replace(/(^-|-$)/g, '');    // trim hyphens
+
+  return { branchCode, name, slug };
+}
+
+// List branches
+app.get('/api/admin/branches', requireAdminApi, async (_req, res) => {
+  try {
+    const snap = await db.collection('branches').get();
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // Sort: name, then code
+    rows.sort((a, b) => {
+      const an = String(a.name || a.branchName || '').toLowerCase();
+      const bn = String(b.name || b.branchName || '').toLowerCase();
+      if (an < bn) return -1;
+      if (an > bn) return 1;
+      return String(a.branchCode || a.code || a.id).localeCompare(String(b.branchCode || b.code || b.id));
+    });
+
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, branches: rows });
+  } catch (e) {
+    console.error('[api branches] list error:', e);
+    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
+  }
+});
+
+// Create/Update branch
+app.post('/api/admin/branches', requireAdminApi, async (req, res) => {
+  try {
+    const { branchCode, name, slug } = normalizeBranchInput(req.body || {});
+
+    if (!branchCode) return res.status(400).json({ ok: false, error: 'Missing branchCode' });
+    if (!name) return res.status(400).json({ ok: false, error: 'Missing name' });
+
+    const ref = db.collection('branches').doc(branchCode);
+    const existing = await ref.get();
+
+    const payload = {
+      branchCode,
+      code: branchCode,
+      name,
+      branchName: name,      // guest-app reads this
+      slug,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    // on create only
+    if (!existing.exists) {
+      payload.createdAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    await ref.set(payload, { merge: true });
+
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, branchCode });
+  } catch (e) {
+    console.error('[api branches] upsert error:', e);
+    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
+  }
+});
+
+// Optional: delete branch (use with caution)
+app.delete('/api/admin/branches/:branchCode', requireAdminApi, async (req, res) => {
+  try {
+    const branchCode = String(req.params.branchCode || '').trim().toUpperCase();
+    if (!branchCode) return res.status(400).json({ ok: false, error: 'Missing branchCode' });
+
+    await db.collection('branches').doc(branchCode).delete();
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('[api branches] delete error:', e);
+    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
+  }
+});
 
 // ---------------- API: Daily Stats ----------------
 // Reads: adminDailyStats/{YYYY-MM-DD__BRANCHCODE}
