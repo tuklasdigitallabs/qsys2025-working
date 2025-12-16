@@ -1,40 +1,29 @@
 // QSys Admin-App (Standalone, JS version)
-
 // Express + EJS + Firebase Admin (ENV-only, cPanel-ready)
 
-const express = require("express");
-
-const path = require("path");
-
-const session = require("express-session");
-
-const dayjs = require("dayjs");
-
-const utc = require("dayjs/plugin/utc");
-
-const tz = require("dayjs/plugin/timezone");
-
+const express = require('express');
+const path = require('path');
+const session = require('express-session');
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
+const tz = require('dayjs/plugin/timezone');
 dayjs.extend(utc);
-
 dayjs.extend(tz);
 
 // --- ensure fetch exists on Node < 18 (cPanel often uses 16) ---
-
 let _fetch = global.fetch;
-
 if (!_fetch) {
-  _fetch = (...args) => import("node-fetch").then((m) => m.default(...args));
+  _fetch = (...args) => import('node-fetch').then(m => m.default(...args));
 }
-
 const fetch = (...args) => _fetch(...args);
 
 // ---------------- ENV + Firebase Admin ----------------
-
-const admin = require("firebase-admin");
+const admin = require('firebase-admin');
 
 const ENV = {
   PROJECT_ID:
-    process.env.ADMIN_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID,
+    process.env.ADMIN_FIREBASE_PROJECT_ID ||
+    process.env.FIREBASE_PROJECT_ID,
 
   CLIENT_EMAIL:
     process.env.ADMIN_FIREBASE_ADMIN_EMAIL ||
@@ -42,577 +31,335 @@ const ENV = {
     process.env.FIREBASE_CLIENT_EMAIL,
 
   PRIVATE_KEY:
-    process.env.ADMIN_FIREBASE_PRIVATE_KEY ||
+    process.env.ADMIN_FIREBASE_ADMIN_KEY ||
     process.env.FIREBASE_ADMIN_PRIVATE_KEY ||
-    process.env.FIREBASE_PRIVATE_KEY,
+    process.env.FIREBASE_PRIVATE_KEY ||
+    '',
 
-  DB_URL:
-    process.env.ADMIN_FIREBASE_DB_URL || process.env.FIREBASE_DATABASE_URL,
-
-  // Reuse same web config as staff app so login behaves identically
+  PRIVATE_KEY_B64:
+    process.env.ADMIN_FIREBASE_ADMIN_KEY_B64 ||
+    process.env.FIREBASE_ADMIN_PRIVATE_KEY_B64 ||
+    '',
 
   WEB_API_KEY:
-    process.env.STAFF_FIREBASE_API_KEY ||
+    process.env.ADMIN_FIREBASE_API_KEY ||
     process.env.FIREBASE_WEB_API_KEY ||
     process.env.FIREBASE_API_KEY,
 
   AUTH_DOMAIN:
-    process.env.STAFF_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN,
+    process.env.ADMIN_FIREBASE_AUTH_DOMAIN ||
+    process.env.FIREBASE_AUTH_DOMAIN,
 
-  APP_ID: process.env.STAFF_FIREBASE_APP_ID || process.env.FIREBASE_APP_ID,
+  APP_ID:
+    process.env.ADMIN_FIREBASE_APP_ID ||
+    process.env.FIREBASE_APP_ID,
 
-  SESSION_SECRET:
-    process.env.ADMIN_SESSION_SECRET ||
-    process.env.SESSION_SECRET ||
-    "qsys-admin-secret-fallback",
-
-  NODE_ENV: process.env.NODE_ENV || "development",
-
-  PORT: process.env.PORT || 3002,
+  SESSION_SECRET: process.env.SESSION_SECRET || 'change_me',
+  SESSION_COOKIE_DOMAIN: process.env.SESSION_COOKIE_DOMAIN || '', // optional: .onegourmetph.com
+  FORCE_HTTPS: process.env.FORCE_HTTPS || '0'
 };
 
-// basic trim on string envs
-
+// Sanitize
 for (const k of Object.keys(ENV)) {
-  if (typeof ENV[k] === "string") ENV[k] = ENV[k].trim();
+  if (typeof ENV[k] === 'string') ENV[k] = ENV[k].trim();
 }
 
-// Env debug (without leaking secrets)
-
-console.log("[ADMIN-APP] ENV summary:", {
-  PROJECT_ID: ENV.PROJECT_ID || null,
-
-  HAS_CLIENT_EMAIL: !!ENV.CLIENT_EMAIL,
-
-  HAS_PRIVATE_KEY: !!ENV.PRIVATE_KEY,
-
-  HAS_DB_URL: !!ENV.DB_URL,
-
-  HAS_WEB_API_KEY: !!ENV.WEB_API_KEY,
-
-  AUTH_DOMAIN: ENV.AUTH_DOMAIN || null,
-
-  APP_ID: ENV.APP_ID || null,
-
-  NODE_ENV: ENV.NODE_ENV,
-
-  PORT: ENV.PORT,
-});
-
-if (!ENV.PROJECT_ID || !ENV.CLIENT_EMAIL || !ENV.PRIVATE_KEY) {
-  console.error("[ADMIN-APP] Missing Firebase Admin env vars");
+function resolvePrivateKey() {
+  if (ENV.PRIVATE_KEY_B64) {
+    return Buffer.from(ENV.PRIVATE_KEY_B64, 'base64').toString('utf8').trim();
+  }
+  if (ENV.PRIVATE_KEY) {
+    let k = ENV.PRIVATE_KEY;
+    if ((k.startsWith('"') && k.endsWith('"')) || (k.startsWith("'") && k.endsWith("'"))) {
+      k = k.slice(1, -1);
+    }
+    return k.replace(/\\n/g, '\n').trim();
+  }
+  return '';
 }
 
-// Initialize Firebase Admin for Admin project
+function initFirebase() {
+  if (admin.apps.length) return;
 
-if (!admin.apps.length) {
+  const pk = resolvePrivateKey();
+  if (!ENV.PROJECT_ID || !ENV.CLIENT_EMAIL || !pk) {
+    throw new Error('Missing Firebase Admin env values (projectId/clientEmail/privateKey).');
+  }
+
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: ENV.PROJECT_ID,
-
       clientEmail: ENV.CLIENT_EMAIL,
-
-      privateKey: ENV.PRIVATE_KEY.replace(/\\n/g, "\n"),
-    }),
-
-    databaseURL: ENV.DB_URL,
+      privateKey: pk
+    })
   });
 
-  console.log("[ADMIN-APP] Firebase initialized for project:", ENV.PROJECT_ID);
-} else {
-  console.log("[ADMIN-APP] Firebase already initialized");
+  console.log('[Firebase] Admin-App connected to project:', ENV.PROJECT_ID);
 }
 
+initFirebase();
 const db = admin.firestore();
 
-// ---------------- Express App Setup ----------------
-
+// ---------------- Express App ----------------
 const app = express();
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
 
-app.set("view engine", "ejs");
+app.use('/public', express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-store')
+}));
 
-app.set("views", path.join(__dirname, "views"));
-
-app.use(express.urlencoded({ extended: true }));
-
+app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-app.use("/public", express.static(path.join(__dirname, "public")));
-
-app.set("trust proxy", 1);
-
-const isProd = ENV.NODE_ENV === "production";
+// Force HTTPS (optional)
+if (ENV.FORCE_HTTPS === '1') {
+  app.use((req, res, next) => {
+    const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    if (proto && proto !== 'https') {
+      return res.redirect(307, 'https://' + req.headers.host + req.originalUrl);
+    }
+    next();
+  });
+}
 
 // ---------------- Session ----------------
+app.set('trust proxy', 1);
 
-app.use(
-  session({
-    name: "admin.sid",
+const cookieDomain = ENV.SESSION_COOKIE_DOMAIN || undefined;
+const isProd = process.env.NODE_ENV === 'production';
 
-    secret: ENV.SESSION_SECRET,
-
-    resave: false,
-
-    saveUninitialized: false,
-
-    cookie: {
-      httpOnly: true,
-
-      secure: isProd, // true on production
-
-      sameSite: "lax",
-
-      maxAge: 1000 * 60 * 60 * 8, // 8 hours
-    },
-  })
-);
-
-// ---------------- Auth Helpers ----------------
-
-function requireAuth(req, res, next) {
-  if (!req.session || !req.session.user) {
-    return res.redirect("/login");
+app.use(session({
+  name: 'admin.sid',
+  secret: ENV.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+  cookie: {
+    secure: 'auto',
+    sameSite: 'lax',
+    domain: cookieDomain
   }
+}));
 
-  next();
-}
-
-function requireAdmin(req, res, next) {
-  if (
-    !req.session ||
-    !req.session.user ||
-    !["admin", "superadmin"].includes(req.session.user.role)
-  ) {
-    return res.redirect("/login");
-  }
-
-  next();
-}
-
-// ---------------- Routes: Auth ----------------
-
-// Redirect root -> dashboard or login
-
-app.get("/", (req, res) => {
-  if (req.session.user) return res.redirect("/dashboard");
-
-  return res.redirect("/login");
-});
-
-app.get("/login", (req, res) => {
-  if (req.session.user) return res.redirect("/dashboard");
-
-  const error = req.query.error || null;
-
-  res.render("login", { error });
-});
-
-// DEBUG helper to see current session user
-
-app.get("/whoami", (req, res) => {
-  res.json({
-    loggedIn: !!req.session.user,
-
-    user: req.session.user || null,
+// local override
+if (!isProd) {
+  app.use((req, _res, next) => {
+    req.session.cookie.secure = false;
+    req.session.cookie.domain = undefined;
+    next();
   });
+}
+
+// Remove legacy cookies (if any)
+app.use((req, res, next) => {
+  if ((req.headers.cookie || '').includes('connect.sid=')) {
+    res.clearCookie('connect.sid', { path: '/' });
+    res.clearCookie('connect.sid', { path: '/', domain: '.onegourmetph.com' });
+  }
+  next();
 });
 
-// Login via Firebase Auth REST + Firestore user profile (admin role required)
+// ---------------- Helpers ----------------
+function manilaDayKey(d) {
+  return (d ? dayjs(d) : dayjs()).tz('Asia/Manila').format('YYYY-MM-DD');
+}
 
-app.post("/login", async (req, res) => {
-  let lastStep = "start";
+function requireAdminPage(req, res, next) {
+  if (req.session?.user?.role === 'admin') return next();
+  return res.redirect('/login');
+}
+
+// IMPORTANT: API guard must NEVER redirect (JSON only)
+function requireAdminApi(req, res, next) {
+  if (req.session?.user?.role === 'admin') return next();
+  return res.status(401).json({ ok: false, error: 'UNAUTHORIZED' });
+}
+
+function normalizeUserDoc(docSnap) {
+  const u = docSnap.data() || {};
+  return {
+    id: docSnap.id,
+    email: u.email || '',
+    emailLower: u.emailLower || (u.email ? String(u.email).toLowerCase() : ''),
+    name: u.name || u.displayName || u.email || 'Admin',
+    role: u.role || 'staff'
+  };
+}
+
+// ---------------- Auth Routes ----------------
+app.get('/', (_req, res) => res.redirect('/dashboard'));
+
+app.get('/login', (req, res) => {
+  if (req.session?.user?.role === 'admin') return res.redirect('/dashboard');
+  res.render('login', { error: null });
+});
+
+app.post('/login', async (req, res) => {
+  let lastStep = 'start';
+  const step = (s) => { lastStep = s; console.log('[admin login] step:', s); };
 
   try {
-    lastStep = "parse";
-
-    const rawEmail = (req.body.email || "").trim();
-
-    const password = String(req.body.password ?? "");
-
-    console.log("[ADMIN-APP] /login attempt:", {
-      rawEmail,
-
-      hasPassword: !!password,
-    });
+    step('parse');
+    const rawEmail = (req.body.email || req.body.username || '').trim();
+    const password = String(req.body.password ?? '');
 
     if (!rawEmail || !password) {
-      console.warn("[ADMIN-APP] /login missing credentials");
-
-      return res.redirect("/login?error=Missing+credentials");
+      return res.render('login', { error: 'Invalid credentials.' });
     }
 
-    const API_KEY = ENV.WEB_API_KEY;
-
-    if (!API_KEY) {
-      console.error("[ADMIN-APP] Missing WEB_API_KEY for login");
-
-      return res.redirect("/login?error=Auth+not+configured");
+    if (!ENV.WEB_API_KEY) {
+      return res.render('login', { error: 'Auth not configured. Contact admin.' });
     }
 
-    // 1) Firebase Auth sign-in (same as staff app)
-
-    lastStep = "firebase-auth";
-
-    console.log("[ADMIN-APP] /login Firebase Auth signInWithPassword...");
-
-    let authResp,
-      bodyText = "";
-
-    try {
-      authResp = await fetch(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`,
-
-        {
-          method: "POST",
-
-          headers: { "Content-Type": "application/json" },
-
-          body: JSON.stringify({
-            email: rawEmail,
-            password,
-            returnSecureToken: true,
-          }),
-        }
-      );
-    } catch (e) {
-      console.error("[ADMIN-APP] login fetch failed:", e);
-
-      return res.redirect("/login?error=Network+error");
-    }
-
-    console.log("[ADMIN-APP] Firebase Auth response status:", authResp.status);
+    // Firebase REST login
+    step('REST signin');
+    const authResp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${ENV.WEB_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: rawEmail, password, returnSecureToken: true })
+      }
+    );
 
     if (!authResp.ok) {
-      try {
-        bodyText = await authResp.text();
-      } catch {}
-
-      console.warn("[ADMIN-APP] Firebase Auth error body:", bodyText);
-
-      let fbMsg = "Invalid+credentials";
-
-      try {
-        fbMsg = JSON.parse(bodyText)?.error?.message || fbMsg;
-      } catch {}
-
-      return res.redirect(`/login?error=${encodeURIComponent(fbMsg)}`);
+      let bodyText = '';
+      try { bodyText = await authResp.text(); } catch {}
+      let msg = 'Invalid credentials.';
+      try { msg = JSON.parse(bodyText)?.error?.message || msg; } catch {}
+      return res.render('login', { error: msg });
     }
 
-    lastStep = "parse-auth-json";
-
+    step('auth json');
     const authJson = await authResp.json();
-
-    const emailFromAuth = (authJson.email || rawEmail).toLowerCase();
-
+    const emailFromAuth = authJson.email || rawEmail;
     const uid = authJson.localId;
 
-    console.log("[ADMIN-APP] Firebase Auth success:", {
-      emailFromAuth,
-
-      uid,
-    });
-
-    // 2) Look up user profile in Firestore
-
-    lastStep = "lookup-user-doc";
-
-    console.log("[ADMIN-APP] Looking up Firestore user by email/emailLower...");
-
-    let snap = await db
-
-      .collection("users")
-
-      .where("email", "==", emailFromAuth)
-
-      .limit(1)
-
-      .get();
-
+    // Find Firestore user profile
+    step('lookup user doc');
+    let snap = await db.collection('users').where('email', '==', emailFromAuth).limit(1).get();
     if (snap.empty) {
-      console.log("[ADMIN-APP] No user by email, trying emailLower...");
-
-      snap = await db
-
-        .collection("users")
-
-        .where("emailLower", "==", emailFromAuth)
-
-        .limit(1)
-
-        .get();
+      snap = await db.collection('users').where('emailLower', '==', emailFromAuth.toLowerCase()).limit(1).get();
     }
-
     if (snap.empty) {
-      console.warn("[ADMIN-APP] No Firestore user profile for:", emailFromAuth);
-
-      return res.redirect("/login?error=Unauthorized");
+      return res.render('login', { error: 'Unauthorized (no user profile).' });
     }
 
-    const doc = snap.docs[0];
-
-    const user = doc.data() || {};
-
-    console.log("[ADMIN-APP] Firestore user doc:", {
-      id: doc.id,
-
-      email: user.email,
-
-      emailLower: user.emailLower,
-
-      role: user.role,
-
-      branchCodes: user.branchCodes || user.branchCode || null,
-    });
-
-    // 3) Require admin role
-
-    if (!["admin", "superadmin"].includes(user.role)) {
-      console.warn(
-        "[ADMIN-APP] User not admin:",
-        emailFromAuth,
-        "role=",
-        user.role
-      );
-
-      return res.redirect("/login?error=Not+authorized");
+    const user = normalizeUserDoc(snap.docs[0]);
+    if (user.role !== 'admin') {
+      return res.render('login', { error: 'Unauthorized (role).' });
     }
 
-    // 4) Store session
+    // Backfill emailLower (optional)
+    if (!user.emailLower && user.email) {
+      try {
+        await db.collection('users').doc(user.id).set({ emailLower: user.email.toLowerCase() }, { merge: true });
+      } catch (e) {
+        console.warn('[admin login] backfill emailLower failed:', e.message);
+      }
+    }
 
     req.session.user = {
       uid,
-
       email: emailFromAuth,
-
-      name: user.name || emailFromAuth,
-
-      role: user.role,
+      name: user.name,
+      role: 'admin',
+      idToken: authJson.idToken
     };
 
-    console.log(
-      "[ADMIN-APP] /login success, session user set:",
-      req.session.user
-    );
+    console.log('[admin login] ✔', emailFromAuth);
 
-    return res.redirect("/dashboard");
-  } catch (err) {
-    console.error("[ADMIN-APP] Login error at", lastStep, ":", err);
+    req.session.save(err => {
+      if (err) return res.render('login', { error: 'Session error.' });
+      res.redirect('/dashboard');
+    });
 
-    return res.redirect("/login?error=Server+error");
+  } catch (e) {
+    console.error('[admin login] unexpected at', lastStep, e);
+    res.render('login', { error: `Unexpected error at ${lastStep}` });
   }
 });
 
-app.post("/logout", (req, res) => {
-  console.log("[ADMIN-APP] /logout for", req.session?.user?.email);
+app.post('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/login'));
+});
 
-  req.session.destroy(() => {
-    res.redirect("/login");
+// ---------------- Pages ----------------
+app.get('/dashboard', requireAdminPage, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.render('dashboard', {
+    user: req.session.user,
+    today: manilaDayKey()
   });
 });
 
-// ---------------- Routes: Dashboard ----------------
+// placeholders so nav doesn’t 404
+app.get('/branches', requireAdminPage, (_req, res) => res.send('Branches page placeholder'));
+app.get('/users', requireAdminPage, (_req, res) => res.send('Users page placeholder'));
+app.get('/reports', requireAdminPage, (_req, res) => res.send('Reports page placeholder'));
+app.get('/qrcodes', requireAdminPage, (_req, res) => res.send('QR Codes page placeholder'));
 
-app.get("/dashboard", requireAdmin, async (req, res) => {
+// ---------------- API: Daily Stats ----------------
+// Reads: adminDailyStats/{YYYY-MM-DD__BRANCHCODE}
+app.get('/api/admin/daily-stats', requireAdminApi, async (req, res) => {
   try {
-    console.log("[ADMIN-APP] /dashboard for", req.session.user.email);
-
-    const branchesSnap = await db.collection("branches").get();
-
-    const branches = branchesSnap.docs.map((d) => ({
-      id: d.id,
-
-      ...d.data(),
-    }));
-
-    const today = dayjs().tz("Asia/Manila").format("YYYY-MM-DD");
-
-    res.render("dashboard", {
-      user: req.session.user,
-
-      branches,
-
-      today,
-    });
-  } catch (err) {
-    console.error("[ADMIN-APP] Dashboard error", err);
-
-    res.status(500).send("Dashboard error");
-  }
-});
-
-// ---------------- Routes: Branches ----------------
-
-app.get("/branches", requireAdmin, async (req, res) => {
-  try {
-    console.log("[ADMIN-APP] /branches for", req.session.user.email);
-
-    const snap = await db.collection("branches").get();
-
-    const branches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    res.render("branches", {
-      user: req.session.user,
-
-      branches,
-    });
-  } catch (err) {
-    console.error("[ADMIN-APP] Branches error", err);
-
-    res.status(500).send("Branches error");
-  }
-});
-
-app.get("/branches/:id", requireAdmin, async (req, res) => {
-  try {
-    const id = req.params.id;
-
-    console.log(
-      "[ADMIN-APP] /branches/:id for",
-      req.session.user.email,
-      "id=",
-      id
-    );
-
-    const doc = await db.collection("branches").doc(id).get();
-
-    if (!doc.exists) {
-      return res.status(404).send("Branch not found");
+    const dateKey = String(req.query.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+      return res.status(400).json({ ok: false, error: 'Invalid date (YYYY-MM-DD)' });
     }
 
-    const branch = { id: doc.id, ...doc.data() };
-
-    res.render("branches", {
-      user: req.session.user,
-
-      branches: [branch],
-
-      activeBranch: branch,
-    });
-  } catch (err) {
-    console.error("[ADMIN-APP] Branch detail error", err);
-
-    res.status(500).send("Branch detail error");
-  }
-});
-
-// ---------------- Routes: Users (Admin users listing) ----------------
-
-app.get("/users", requireAdmin, async (req, res) => {
-  try {
-    console.log("[ADMIN-APP] /users for", req.session.user.email);
-
-    const snap = await db.collection("users").get();
-
-    const users = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    res.render("users", {
-      user: req.session.user,
-
-      users,
-    });
-  } catch (err) {
-    console.error("[ADMIN-APP] Users error", err);
-
-    res.status(500).send("Users error");
-  }
-});
-
-// ---------------- Routes: Reports (placeholder) ----------------
-
-app.get("/reports", requireAdmin, async (req, res) => {
-  try {
-    console.log("[ADMIN-APP] /reports for", req.session.user.email);
-
-    const today = dayjs().tz("Asia/Manila").format("YYYY-MM-DD");
-
-    res.render("reports", {
-      user: req.session.user,
-
-      today,
-    });
-  } catch (err) {
-    console.error("[ADMIN-APP] Reports error", err);
-
-    res.status(500).send("Reports error");
-  }
-});
-
-// ---------------- Routes: QR Codes (placeholder) ----------------
-
-app.get("/qrcodes", requireAdmin, async (req, res) => {
-  try {
-    console.log("[ADMIN-APP] /qrcodes for", req.session.user.email);
-
-    res.render("qrcodes", {
-      user: req.session.user,
-    });
-  } catch (err) {
-    console.error("[ADMIN-APP] QR Codes error", err);
-
-    res.status(500).send("QR Codes error");
-  }
-});
-
-// ---------------- API: Dashboard Stats ----------------
-function manilaDateKey(input) {
-  const d = input ? dayjs(input) : dayjs();
-  return d.tz("Asia/Manila").format("YYYY-MM-DD");
-}
-
-app.get("/api/dashboard", requireAdmin, async (req, res) => {
-  try {
-    const dateKey = manilaDateKey(req.query.date);
-    const snap = await db
-      .collection("adminDailyStats")
-      .where("dateKey", "==", dateKey)
+    const snap = await db.collection('adminDailyStats')
+      .where('dateKey', '==', dateKey)
       .get();
 
-    const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const byBranch = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    // Aggregate totals across branches
-    const sum = {
+    const totals = {
       reserved: 0,
       seated: 0,
       skipped: 0,
-      waitingNow: { P: 0, A: 0, B: 0, C: 0 },
+      waitingNow: { P: 0, A: 0, B: 0, C: 0 }
     };
 
-    for (const r of rows) {
-      sum.reserved += Number(r?.totals?.reserved || 0);
-      sum.seated += Number(r?.totals?.seated || 0);
-      sum.skipped += Number(r?.totals?.skipped || 0);
+    for (const b of byBranch) {
+      const t = b.totals || {};
+      totals.reserved += Number(t.reserved || 0);
+      totals.seated   += Number(t.seated || 0);
+      totals.skipped  += Number(t.skipped || 0);
 
-      const w = r?.waitingNow || {};
-      sum.waitingNow.P += Number(w.P || 0);
-      sum.waitingNow.A += Number(w.A || 0);
-      sum.waitingNow.B += Number(w.B || 0);
-      sum.waitingNow.C += Number(w.C || 0);
+      const w = b.waitingNow || {};
+      totals.waitingNow.P += Number(w.P || 0);
+      totals.waitingNow.A += Number(w.A || 0);
+      totals.waitingNow.B += Number(w.B || 0);
+      totals.waitingNow.C += Number(w.C || 0);
     }
 
-    return res.json({
-      ok: true,
-      dateKey,
-      totals: sum,
-      byBranch: rows.sort((a, b) =>
-        String(a.branchCode || "").localeCompare(String(b.branchCode || ""))
-      ),
-    });
-  } catch (err) {
-    console.error("[ADMIN-APP] /api/dashboard error", err);
-    res.status(500).json({ ok: false, error: "dashboard_error" });
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, dateKey, totals, byBranch });
+
+  } catch (e) {
+    console.error('[api daily-stats] error:', e);
+    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
   }
 });
 
-// ---------------- Healthcheck ----------------
-
-app.get("/healthz", (req, res) => {
-  res.json({ ok: true, ts: Date.now() });
+// ---------------- Debug ----------------
+app.get('/healthz', (_req, res) => {
+  res.json({ ok: true, project: ENV.PROJECT_ID });
 });
 
-// ---------------- Start Server ----------------
+app.get('/__whoami', (req, res) => {
+  res.json({
+    ok: true,
+    cwd: process.cwd(),
+    file: __filename,
+    user: req.session?.user || null
+  });
+});
 
-app.listen(ENV.PORT, () => {
-  console.log(
-    `[ADMIN-APP] Listening on port ${ENV.PORT} (env: ${ENV.NODE_ENV})`
-  );
+// ---------------- Start ----------------
+const PORT = process.env.PORT || 3002;
+app.listen(PORT, () => {
+  console.log(`[admin-app] listening on ${PORT}`);
 });

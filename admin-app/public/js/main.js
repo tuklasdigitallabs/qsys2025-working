@@ -1,146 +1,138 @@
-/* admin-app/public/js/main.js
- * Dashboard data loader + renderer (cache-busted)
- * Expects dashboard.ejs IDs:
- *  - kpi-reserved, kpi-seated, kpi-skipped
- *  - kpi-wp, kpi-wa, kpi-wb, kpi-wc
- *  - dk, dateKey, btnRefresh, dashStatus, branchTable
- */
-
 (function () {
-  function $(id) { return document.getElementById(id); }
+  function el(id) { return document.getElementById(id); }
 
   function setText(id, val) {
-    var el = $(id);
-    if (!el) {
-      console.warn('[admin] missing element id:', id);
-      return;
+    var node = el(id);
+    if (node) node.textContent = (val === undefined || val === null) ? '—' : String(val);
+  }
+
+  function fmtUpdated(v) {
+    if (!v) return '—';
+    // Firestore Timestamp can come as {_seconds,_nanoseconds}
+    if (typeof v === 'object' && v._seconds) {
+      var ms = (v._seconds * 1000) + Math.floor((v._nanoseconds || 0) / 1e6);
+      var d = new Date(ms);
+      return isNaN(d.getTime()) ? '—' : d.toLocaleString();
     }
-    el.textContent = (val === null || val === undefined) ? '—' : String(val);
-  }
-
-  function pad2(n) { return String(n).padStart(2, '0'); }
-
-  function todayKey() {
-    var d = new Date();
-    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  }
-
-  function normalizeDateKey(v) {
-    if (!v) return null;
-    // input[type=date] should be YYYY-MM-DD already
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-
-    var d = new Date(v);
-    if (isNaN(d.getTime())) return null;
-    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  }
-
-  function fmtUpdated(u) {
+    // Already a string/date
     try {
-      if (!u) return '';
-      if (typeof u === 'string') return u;
-      if (typeof u._seconds === 'number') return new Date(u._seconds * 1000).toLocaleString();
-      if (typeof u.seconds === 'number') return new Date(u.seconds * 1000).toLocaleString();
-      return '';
-    } catch {
-      return '';
-    }
-  }
-
-  function renderBranchTable(byBranch) {
-    var table = $('branchTable');
-    if (!table) return;
-
-    var tbody = table.querySelector('tbody');
-    if (!tbody) return;
-
-    var rows = [];
-    (byBranch || []).forEach(function (b) {
-      var totals = b.totals || {};
-      var wn = b.waitingNow || {};
-      rows.push(
-        '<tr>' +
-          '<td>' + (b.branchName || b.branchCode || '—') + '</td>' +
-          '<td>' + (totals.reserved ?? totals["totals.reserved"] ?? b["totals.reserved"] ?? 0) + '</td>' +
-          '<td>' + (totals.seated ?? 0) + '</td>' +
-          '<td>' + (totals.skipped ?? 0) + '</td>' +
-          '<td>' + (wn.P ?? 0) + '</td>' +
-          '<td>' + (wn.A ?? 0) + '</td>' +
-          '<td>' + (wn.B ?? 0) + '</td>' +
-          '<td>' + (wn.C ?? 0) + '</td>' +
-          '<td>' + fmtUpdated(b.updatedAt) + '</td>' +
-        '</tr>'
-      );
-    });
-
-    tbody.innerHTML = rows.length
-      ? rows.join('')
-      : '<tr><td colspan="9">No data</td></tr>';
+      var d2 = new Date(v);
+      if (!isNaN(d2.getTime())) return d2.toLocaleString();
+    } catch {}
+    return String(v);
   }
 
   async function fetchDaily(dateKey) {
-    // IMPORTANT: cache-bust every request
     var url = '/api/admin/daily-stats?date=' + encodeURIComponent(dateKey) + '&t=' + Date.now();
-    console.log('[admin] GET', url);
+    var resp = await fetch(url, {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }
+    });
 
-    var resp = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
-    var json = await resp.json();
-    if (!resp.ok || !json.ok) throw new Error(json.error || ('HTTP ' + resp.status));
-    return json;
+    // If session expired, server returns JSON 401.
+    if (resp.status === 401) {
+      window.location.href = '/login';
+      return null;
+    }
+
+    var ct = (resp.headers.get('content-type') || '').toLowerCase();
+    if (ct.indexOf('application/json') === -1) {
+      // This is exactly the "<!DOCTYPE" problem. Show a useful error and force login.
+      var text = '';
+      try { text = await resp.text(); } catch {}
+      console.error('[admin] Expected JSON, got:', ct, 'body:', text.slice(0, 200));
+      window.location.href = '/login';
+      return null;
+    }
+
+    return await resp.json();
   }
 
   function render(data) {
-    // Update “Date (Manila)” label
-    setText('dk', data.dateKey || '—');
+    if (!data || !data.ok) return;
 
-    var totals = data.totals || {};
-    var wn = totals.waitingNow || {};
+    // KPIs
+    setText('kpi-reserved', data.totals && data.totals.reserved);
+    setText('kpi-seated', data.totals && data.totals.seated);
+    setText('kpi-skipped', data.totals && data.totals.skipped);
 
-    setText('kpi-reserved', totals.reserved ?? 0);
-    setText('kpi-seated', totals.seated ?? 0);
-    setText('kpi-skipped', totals.skipped ?? 0);
+    var w = (data.totals && data.totals.waitingNow) || {};
+    setText('kpi-wp', w.P || 0);
+    setText('kpi-wa', w.A || 0);
+    setText('kpi-wb', w.B || 0);
+    setText('kpi-wc', w.C || 0);
 
-    setText('kpi-wp', wn.P ?? 0);
-    setText('kpi-wa', wn.A ?? 0);
-    setText('kpi-wb', wn.B ?? 0);
-    setText('kpi-wc', wn.C ?? 0);
+    // By Branch table
+    var tbody = el('branchTable') ? el('branchTable').querySelector('tbody') : null;
+    if (!tbody) return;
 
-    renderBranchTable(data.byBranch || []);
+    var rows = data.byBranch || [];
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="9">No data for this date.</td></tr>';
+      return;
+    }
 
-    var status = 'Updated: ' + (new Date()).toLocaleString();
-    // If backend provides updatedAt on first branch, show that too
-    try {
-      var b0 = (data.byBranch && data.byBranch[0]) ? data.byBranch[0] : null;
-      if (b0 && b0.updatedAt) status = 'Updated: ' + fmtUpdated(b0.updatedAt);
-    } catch {}
-    setText('dashStatus', status);
-  }
+    tbody.innerHTML = '';
+    for (var i = 0; i < rows.length; i++) {
+      var b = rows[i] || {};
+      var totals = b.totals || {};
+      var waiting = b.waitingNow || {};
 
-  async function refresh() {
-    try {
-      var input = $('dateKey');
-      var dateKey = normalizeDateKey(input ? input.value : null) || todayKey();
+      var tr = document.createElement('tr');
 
-      // keep input consistent
-      if (input && input.value !== dateKey) input.value = dateKey;
+      function td(txt) {
+        var x = document.createElement('td');
+        x.textContent = (txt === undefined || txt === null) ? '—' : String(txt);
+        return x;
+      }
 
-      setText('dashStatus', 'Loading…');
+      tr.appendChild(td(b.branchName || b.branchCode || b.id || '—'));
+      tr.appendChild(td(totals.reserved || b['totals.reserved'] || 0));
+      tr.appendChild(td(totals.seated || 0));
+      tr.appendChild(td(totals.skipped || 0));
+      tr.appendChild(td(waiting.P || 0));
+      tr.appendChild(td(waiting.A || 0));
+      tr.appendChild(td(waiting.B || 0));
+      tr.appendChild(td(waiting.C || 0));
+      tr.appendChild(td(fmtUpdated(b.updatedAt)));
 
-      var data = await fetchDaily(dateKey);
-      console.log('[admin] payload', data);
-      render(data);
-    } catch (e) {
-      console.error('[admin] refresh failed:', e);
-      setText('dashStatus', 'Error: ' + (e.message || e));
+      tbody.appendChild(tr);
     }
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
-    var btn = $('btnRefresh');
-    if (btn) btn.addEventListener('click', function (ev) { ev.preventDefault(); refresh(); });
+  async function refresh() {
+    var dateInput = el('dateKey');
+    var dateKey = dateInput ? dateInput.value : (el('dk') ? el('dk').textContent : '');
 
-    // first load + auto refresh
+    setText('dashStatus', 'Refreshing…');
+    try {
+      var data = await fetchDaily(dateKey);
+      if (!data) return;
+
+      render(data);
+
+      // status line
+      var stamp = new Date();
+      setText('dashStatus', 'Updated: ' + stamp.toLocaleString());
+    } catch (e) {
+      console.error('[admin] refresh failed:', e);
+      setText('dashStatus', 'Refresh failed. Check console.');
+    }
+  }
+
+  function boot() {
+    var btn = el('btnRefresh');
+    if (btn) btn.addEventListener('click', function () { refresh(); });
+
+    // auto-refresh every 15s (optional)
+    // setInterval(refresh, 15000);
+
     refresh();
-    setInterval(refresh, 15000);
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
 })();
