@@ -14,7 +14,6 @@
       var d = new Date(ms);
       return isNaN(d.getTime()) ? '—' : d.toLocaleString();
     }
-    // Already a string/date
     try {
       var d2 = new Date(v);
       if (!isNaN(d2.getTime())) return d2.toLocaleString();
@@ -29,7 +28,6 @@
       headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }
     });
 
-    // If session expired, server returns JSON 401.
     if (resp.status === 401) {
       window.location.href = '/login';
       return null;
@@ -37,7 +35,6 @@
 
     var ct = (resp.headers.get('content-type') || '').toLowerCase();
     if (ct.indexOf('application/json') === -1) {
-      // This is exactly the "<!DOCTYPE" problem. Show a useful error and force login.
       var text = '';
       try { text = await resp.text(); } catch {}
       console.error('[admin] Expected JSON, got:', ct, 'body:', text.slice(0, 200));
@@ -51,19 +48,26 @@
   function render(data) {
     if (!data || !data.ok) return;
 
-    // KPIs
-    setText('kpi-reserved', data.totals && data.totals.reserved);
+    // -------- Daily Overview KPIs --------
+    var w = (data.totals && data.totals.waitingNow) || { P:0, A:0, B:0, C:0 };
+    var waitingTotal =
+      (w.P || 0) +
+      (w.A || 0) +
+      (w.B || 0) +
+      (w.C || 0);
+
+    setText('kpi-wtotal', waitingTotal);
     setText('kpi-seated', data.totals && data.totals.seated);
     setText('kpi-skipped', data.totals && data.totals.skipped);
 
-    var w = (data.totals && data.totals.waitingNow) || {};
     setText('kpi-wp', w.P || 0);
     setText('kpi-wa', w.A || 0);
     setText('kpi-wb', w.B || 0);
     setText('kpi-wc', w.C || 0);
 
-    // By Branch table
-    var tbody = el('branchTable') ? el('branchTable').querySelector('tbody') : null;
+    // -------- By Branch table --------
+    var table = el('branchTable');
+    var tbody = table ? table.querySelector('tbody') : null;
     if (!tbody) return;
 
     var rows = data.byBranch || [];
@@ -72,22 +76,30 @@
       return;
     }
 
+    function td(txt) {
+      var x = document.createElement('td');
+      x.textContent = (txt === undefined || txt === null) ? '—' : String(txt);
+      return x;
+    }
+
     tbody.innerHTML = '';
     for (var i = 0; i < rows.length; i++) {
       var b = rows[i] || {};
       var totals = b.totals || {};
       var waiting = b.waitingNow || {};
 
-      var tr = document.createElement('tr');
+      // IMPORTANT: reserved may live in either totals.reserved OR "totals.reserved"
+      var reservedVal =
+        (totals.reserved !== undefined ? totals.reserved : undefined);
 
-      function td(txt) {
-        var x = document.createElement('td');
-        x.textContent = (txt === undefined || txt === null) ? '—' : String(txt);
-        return x;
+      if (reservedVal === undefined) {
+        reservedVal = b['totals.reserved'];
       }
+      if (reservedVal === undefined || reservedVal === null) reservedVal = 0;
 
+      var tr = document.createElement('tr');
       tr.appendChild(td(b.branchName || b.branchCode || b.id || '—'));
-      tr.appendChild(td(totals.reserved || b['totals.reserved'] || 0));
+      tr.appendChild(td(reservedVal));                // <-- restore Reserved column
       tr.appendChild(td(totals.seated || 0));
       tr.appendChild(td(totals.skipped || 0));
       tr.appendChild(td(waiting.P || 0));
@@ -111,7 +123,6 @@
 
       render(data);
 
-      // status line
       var stamp = new Date();
       setText('dashStatus', 'Updated: ' + stamp.toLocaleString());
     } catch (e) {
@@ -123,9 +134,6 @@
   function boot() {
     var btn = el('btnRefresh');
     if (btn) btn.addEventListener('click', function () { refresh(); });
-
-    // auto-refresh every 15s (optional)
-    // setInterval(refresh, 15000);
 
     refresh();
   }
