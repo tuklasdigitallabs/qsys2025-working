@@ -83,7 +83,6 @@ function initFirebase() {
 
   const pk = resolvePrivateKey();
   if (!ENV.PROJECT_ID || !ENV.CLIENT_EMAIL || !pk) {
-    // Do NOT proceed and crash later. Fail fast with a clear error.
     throw new Error('Missing Firebase Admin env values (projectId/clientEmail/privateKey).');
   }
 
@@ -132,8 +131,7 @@ if (ENV.FORCE_HTTPS === '1') {
 }
 
 // ---------------- Session ----------------
-// IMPORTANT: If blank, do NOT set cookie domain at all.
-function getCookieDomain(req) {
+function getCookieDomain() {
   // If explicitly set in cPanel, use it (only if it looks valid)
   const v = (ENV.SESSION_COOKIE_DOMAIN || '').trim();
   if (v && v.includes('.')) return v;
@@ -141,7 +139,6 @@ function getCookieDomain(req) {
   // Default: DO NOT set cookie domain (works for both staging and live reliably)
   return undefined;
 }
-
 
 app.use(session({
   name: process.env.SESSION_COOKIE_NAME || 'admin.sid',
@@ -152,34 +149,19 @@ app.use(session({
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
-    // keep this false here; we'll force secure dynamically per request based on x-forwarded-proto
-    secure: false,
-    domain: cookieDomain,
-    // optional: reduce weird long-lived loops while testing
+    secure: false, // set dynamically below
     maxAge: 1000 * 60 * 60 * 12 // 12 hours
   }
 }));
 
-app.use((req, _res, next) => {
-  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
-  const isHttps = (proto === 'https') || req.secure === true;
-
-  // always correct behind cPanel proxy
-  req.session.cookie.secure = isHttps;
-
-  // flexible domain: undefined = host-only cookie (recommended)
-  req.session.cookie.domain = getCookieDomain(req);
-
-  next();
-});
-
-// Force secure cookie when behind HTTPS (fixes login loops on cPanel)
+// Set secure + domain dynamically per request (cPanel reverse proxy safe)
 app.use((req, _res, next) => {
   const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
   const isHttps = (proto === 'https') || req.secure === true;
 
   if (req.session && req.session.cookie) {
     req.session.cookie.secure = isHttps;
+    req.session.cookie.domain = getCookieDomain();
   }
   next();
 });
@@ -187,15 +169,19 @@ app.use((req, _res, next) => {
 // Remove legacy cookies (if any)
 app.use((req, res, next) => {
   const c = (req.headers.cookie || '');
+
+  // older default cookie name
   if (c.includes('connect.sid=')) {
     res.clearCookie('connect.sid', { path: '/' });
     res.clearCookie('connect.sid', { path: '/', domain: '.onegourmetph.com' });
   }
-  // also clear legacy admin.sid if domain was previously set incorrectly
+
+  // older admin cookie name (if you previously used it)
   if (c.includes('admin.sid=')) {
     res.clearCookie('admin.sid', { path: '/' });
     res.clearCookie('admin.sid', { path: '/', domain: '.onegourmetph.com' });
   }
+
   next();
 });
 
@@ -355,6 +341,11 @@ app.post('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/login'));
 });
 
+// Optional: GET logout (handy for manual testing)
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/login'));
+});
+
 // ---------------- Pages ----------------
 app.get('/dashboard', requireAdminPage, (req, res) => {
   res.set('Cache-Control', 'no-store');
@@ -416,6 +407,7 @@ app.get('/reports', requireAdminPage, (_req, res) => res.send('Reports page plac
 app.get('/qrcodes', requireAdminPage, (_req, res) => res.send('QR Codes page placeholder'));
 
 // ---------------- API: Daily Stats ----------------
+// Reads: adminDailyStats/{YYYY-MM-DD__BRANCHCODE}
 app.get('/api/admin/daily-stats', requireAdminApi, async (req, res) => {
   try {
     const dateKey = String(req.query.date || '').trim();
@@ -443,8 +435,8 @@ app.get('/api/admin/daily-stats', requireAdminApi, async (req, res) => {
       const reserved = Math.max(reservedNested, reservedLegacy);
 
       totals.reserved += reserved;
-      totals.seated   += safeNumber(t.seated);
-      totals.skipped  += safeNumber(t.skipped);
+      totals.seated += safeNumber(t.seated);
+      totals.skipped += safeNumber(t.skipped);
 
       const w = b.waitingNow || {};
       totals.waitingNow.P += safeNumber(w.P);
@@ -512,16 +504,30 @@ app.get('/healthz', (_req, res) => {
   res.json({ ok: true, project: ENV.PROJECT_ID });
 });
 
+// Cookie write test (useful on cPanel/Passenger)
+app.get('/__setcookie', (req, res) => {
+  req.session.test = 'ok';
+  req.session.save(() => {
+    res.json({
+      ok: true,
+      sessionID: req.sessionID,
+      cookieHeader: req.headers.cookie || null,
+      hasUser: !!req.session?.user
+    });
+  });
+});
+
 app.get('/__whoami', (req, res) => {
   const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
   res.json({
     ok: true,
     cwd: process.cwd(),
     file: __filename,
-    cookieDomain,
     xForwardedProto: proto || null,
     reqSecure: !!req.secure,
     sessionHasUser: !!req.session?.user,
+    sessionID: req.sessionID,
+    cookieHeader: req.headers.cookie || null,
     user: req.session?.user || null
   });
 });
