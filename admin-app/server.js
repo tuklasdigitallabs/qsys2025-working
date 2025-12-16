@@ -55,7 +55,7 @@ const ENV = {
     process.env.FIREBASE_APP_ID,
 
   SESSION_SECRET: process.env.SESSION_SECRET || 'change_me',
-  SESSION_COOKIE_DOMAIN: process.env.SESSION_COOKIE_DOMAIN || '', // optional: .onegourmetph.com
+  SESSION_COOKIE_DOMAIN: process.env.SESSION_COOKIE_DOMAIN || '', // leave BLANK for staging unless you KNOW you need it
   FORCE_HTTPS: process.env.FORCE_HTTPS || '0'
 };
 
@@ -83,6 +83,7 @@ function initFirebase() {
 
   const pk = resolvePrivateKey();
   if (!ENV.PROJECT_ID || !ENV.CLIENT_EMAIL || !pk) {
+    // Do NOT proceed and crash later. Fail fast with a clear error.
     throw new Error('Missing Firebase Admin env values (projectId/clientEmail/privateKey).');
   }
 
@@ -105,9 +106,11 @@ const app = express();
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+// Trust proxy is REQUIRED on cPanel/Passenger (must be BEFORE session)
+app.set('trust proxy', 1);
+
 app.use('/public', express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
-    // Avoid stale JS/CSS during staging
     if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
       res.setHeader('Cache-Control', 'no-store');
     }
@@ -117,13 +120,10 @@ app.use('/public', express.static(path.join(__dirname, 'public'), {
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// Trust proxy is REQUIRED on cPanel/Passenger for secure cookies
-app.set('trust proxy', 1);
-
 // Force HTTPS (optional)
 if (ENV.FORCE_HTTPS === '1') {
   app.use((req, res, next) => {
-    const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
     if (proto && proto !== 'https') {
       return res.redirect(307, 'https://' + req.headers.host + req.originalUrl);
     }
@@ -132,26 +132,48 @@ if (ENV.FORCE_HTTPS === '1') {
 }
 
 // ---------------- Session ----------------
-const cookieDomain = ENV.SESSION_COOKIE_DOMAIN || undefined;
+// IMPORTANT: If blank, do NOT set cookie domain at all.
+const cookieDomain = ENV.SESSION_COOKIE_DOMAIN ? ENV.SESSION_COOKIE_DOMAIN : undefined;
 
 app.use(session({
   name: 'admin.sid',
   secret: ENV.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  proxy: true,               // IMPORTANT behind reverse proxy
+  proxy: true, // IMPORTANT behind reverse proxy (cPanel)
   cookie: {
-    secure: 'auto',          // IMPORTANT fixes staging login loop
+    httpOnly: true,
     sameSite: 'lax',
-    domain: cookieDomain
+    // keep this false here; we'll force secure dynamically per request based on x-forwarded-proto
+    secure: false,
+    domain: cookieDomain,
+    // optional: reduce weird long-lived loops while testing
+    maxAge: 1000 * 60 * 60 * 12 // 12 hours
   }
 }));
 
+// Force secure cookie when behind HTTPS (fixes login loops on cPanel)
+app.use((req, _res, next) => {
+  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const isHttps = (proto === 'https') || req.secure === true;
+
+  if (req.session && req.session.cookie) {
+    req.session.cookie.secure = isHttps;
+  }
+  next();
+});
+
 // Remove legacy cookies (if any)
 app.use((req, res, next) => {
-  if ((req.headers.cookie || '').includes('connect.sid=')) {
+  const c = (req.headers.cookie || '');
+  if (c.includes('connect.sid=')) {
     res.clearCookie('connect.sid', { path: '/' });
     res.clearCookie('connect.sid', { path: '/', domain: '.onegourmetph.com' });
+  }
+  // also clear legacy admin.sid if domain was previously set incorrectly
+  if (c.includes('admin.sid=')) {
+    res.clearCookie('admin.sid', { path: '/' });
+    res.clearCookie('admin.sid', { path: '/', domain: '.onegourmetph.com' });
   }
   next();
 });
@@ -231,7 +253,6 @@ app.post('/login', async (req, res) => {
       return res.render('login', { error: 'Auth not configured. Contact admin.' });
     }
 
-    // Firebase REST login
     step('REST signin');
     const authResp = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${ENV.WEB_API_KEY}`,
@@ -255,7 +276,6 @@ app.post('/login', async (req, res) => {
     const emailFromAuth = authJson.email || rawEmail;
     const uid = authJson.localId;
 
-    // Find Firestore user profile
     step('lookup user doc');
     let snap = await db.collection('users').where('email', '==', emailFromAuth).limit(1).get();
     if (snap.empty) {
@@ -270,7 +290,6 @@ app.post('/login', async (req, res) => {
       return res.render('login', { error: 'Unauthorized (role).' });
     }
 
-    // Backfill emailLower (optional)
     if (!user.emailLower && user.email) {
       try {
         await db.collection('users').doc(user.id).set({ emailLower: user.email.toLowerCase() }, { merge: true });
@@ -279,7 +298,6 @@ app.post('/login', async (req, res) => {
       }
     }
 
-    // Regenerate session to ensure clean cookie write
     step('regenerate session');
     req.session.regenerate((err) => {
       if (err) {
@@ -340,7 +358,6 @@ app.get('/branches', requireAdminPage, async (req, res) => {
   }
 });
 
-// Simple server POST add/update branch (works without JS)
 app.post('/branches/save', requireAdminPage, async (req, res) => {
   try {
     const branchCode = String(req.body.branchCode || req.body.code || '').trim().toUpperCase();
@@ -350,7 +367,7 @@ app.post('/branches/save', requireAdminPage, async (req, res) => {
     const active = String(req.body.active || 'true').toLowerCase() !== 'false';
 
     if (!branchCode || !branchName) {
-      return res.redirect('/branches'); // keep it simple
+      return res.redirect('/branches');
     }
 
     await db.collection('branches').doc(branchCode).set({
@@ -378,7 +395,6 @@ app.get('/reports', requireAdminPage, (_req, res) => res.send('Reports page plac
 app.get('/qrcodes', requireAdminPage, (_req, res) => res.send('QR Codes page placeholder'));
 
 // ---------------- API: Daily Stats ----------------
-// Reads: adminDailyStats/{YYYY-MM-DD__BRANCHCODE}
 app.get('/api/admin/daily-stats', requireAdminApi, async (req, res) => {
   try {
     const dateKey = String(req.query.date || '').trim();
@@ -401,10 +417,6 @@ app.get('/api/admin/daily-stats', requireAdminApi, async (req, res) => {
 
     for (const b of byBranch) {
       const t = b.totals || {};
-
-      // IMPORTANT: handle your mixed legacy fields:
-      // - nested totals.reserved
-      // - top-level "totals.reserved" (string key) from older code
       const reservedNested = safeNumber(t.reserved);
       const reservedLegacy = safeNumber(b['totals.reserved']);
       const reserved = Math.max(reservedNested, reservedLegacy);
@@ -429,7 +441,7 @@ app.get('/api/admin/daily-stats', requireAdminApi, async (req, res) => {
   }
 });
 
-// ---------------- API: Branches (optional use by JS later) ----------------
+// ---------------- API: Branches ----------------
 app.get('/api/admin/branches', requireAdminApi, async (_req, res) => {
   try {
     const snap = await db.collection('branches').get();
@@ -480,12 +492,15 @@ app.get('/healthz', (_req, res) => {
 });
 
 app.get('/__whoami', (req, res) => {
+  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
   res.json({
     ok: true,
     cwd: process.cwd(),
     file: __filename,
     cookieDomain,
-    secureMode: 'auto',
+    xForwardedProto: proto || null,
+    reqSecure: !!req.secure,
+    sessionHasUser: !!req.session?.user,
     user: req.session?.user || null
   });
 });
