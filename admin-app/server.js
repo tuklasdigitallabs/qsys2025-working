@@ -106,11 +106,19 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 app.use('/public', express.static(path.join(__dirname, 'public'), {
-  setHeaders: (res) => res.setHeader('Cache-Control', 'no-store')
+  setHeaders: (res, filePath) => {
+    // Avoid stale JS/CSS during staging
+    if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  }
 }));
 
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
+
+// Trust proxy is REQUIRED on cPanel/Passenger for secure cookies
+app.set('trust proxy', 1);
 
 // Force HTTPS (optional)
 if (ENV.FORCE_HTTPS === '1') {
@@ -124,32 +132,20 @@ if (ENV.FORCE_HTTPS === '1') {
 }
 
 // ---------------- Session ----------------
-app.set('trust proxy', 1);
-
 const cookieDomain = ENV.SESSION_COOKIE_DOMAIN || undefined;
-const isProd = process.env.NODE_ENV === 'production';
 
 app.use(session({
   name: 'admin.sid',
   secret: ENV.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  proxy: true,
+  proxy: true,               // IMPORTANT behind reverse proxy
   cookie: {
-    secure: 'auto',
+    secure: 'auto',          // IMPORTANT fixes staging login loop
     sameSite: 'lax',
     domain: cookieDomain
   }
 }));
-
-// local override
-if (!isProd) {
-  app.use((req, _res, next) => {
-    req.session.cookie.secure = false;
-    req.session.cookie.domain = undefined;
-    next();
-  });
-}
 
 // Remove legacy cookies (if any)
 app.use((req, res, next) => {
@@ -187,40 +183,26 @@ function normalizeUserDoc(docSnap) {
   };
 }
 
-// ---------------- Admin Daily Stats Helpers ----------------
-function adminStatsDocId(dateKey, branchCode) {
-  return `${dateKey}__${branchCode}`;
+function normalizeBranchDoc(docSnap) {
+  const d = docSnap.data() || {};
+  const code = (d.branchCode || d.code || docSnap.id || '').toString().trim().toUpperCase();
+  return {
+    id: docSnap.id,
+    branchCode: code,
+    code,
+    branchName: d.branchName || d.name || d.displayName || code,
+    name: d.branchName || d.name || d.displayName || code,
+    slug: (d.slug || code).toString().trim().toLowerCase(),
+    location: d.location || '',
+    active: (d.active === false) ? false : true,
+    updatedAt: d.updatedAt || null,
+    createdAt: d.createdAt || null
+  };
 }
 
-async function countWaitingNow(branchCode, dateKey) {
-  const GROUPS = ['P', 'A', 'B', 'C'];
-  const waitingNow = { P: 0, A: 0, B: 0, C: 0 };
-
-  for (const g of GROUPS) {
-    const col = db.collection(`queues/${branchCode}/${dateKey}/${g}/items`);
-    const q = col.where('status', 'in', ['waiting', 'called']);
-
-    // Prefer aggregation count() if supported; fallback to fetching docs
-    try {
-      const agg = await q.count().get();
-      waitingNow[g] = Number(agg.data().count || 0);
-    } catch {
-      const snap = await q.get();
-      waitingNow[g] = snap.size;
-    }
-  }
-  return waitingNow;
-}
-
-async function getBranchesList() {
-  const branchesSnap = await db.collection('branches').get();
-  return branchesSnap.docs.map(d => {
-    const data = d.data() || {};
-    return {
-      code: data.branchCode || data.code || d.id,
-      name: data.name || data.branchName || data.displayName || (data.branchCode || data.code || d.id)
-    };
-  });
+function safeNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 // ---------------- Auth Routes ----------------
@@ -228,6 +210,7 @@ app.get('/', (_req, res) => res.redirect('/dashboard'));
 
 app.get('/login', (req, res) => {
   if (req.session?.user?.role === 'admin') return res.redirect('/dashboard');
+  res.set('Cache-Control', 'no-store');
   res.render('login', { error: null });
 });
 
@@ -296,19 +279,31 @@ app.post('/login', async (req, res) => {
       }
     }
 
-    req.session.user = {
-      uid,
-      email: emailFromAuth,
-      name: user.name,
-      role: 'admin',
-      idToken: authJson.idToken
-    };
+    // Regenerate session to ensure clean cookie write
+    step('regenerate session');
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error('[admin login] regenerate error:', err);
+        return res.render('login', { error: 'Session error.' });
+      }
 
-    console.log('[admin login] ✔', emailFromAuth);
+      req.session.user = {
+        uid,
+        email: emailFromAuth,
+        name: user.name,
+        role: 'admin',
+        idToken: authJson.idToken
+      };
 
-    req.session.save(err => {
-      if (err) return res.render('login', { error: 'Session error.' });
-      res.redirect('/dashboard');
+      console.log('[admin login] ✔', emailFromAuth);
+
+      req.session.save((err2) => {
+        if (err2) {
+          console.error('[admin login] save error:', err2);
+          return res.render('login', { error: 'Session error.' });
+        }
+        res.redirect('/dashboard');
+      });
     });
 
   } catch (e) {
@@ -330,116 +325,57 @@ app.get('/dashboard', requireAdminPage, (req, res) => {
   });
 });
 
-// ✅ Branches page (real page now)
-app.get('/branches', requireAdminPage, (_req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.render('branches', { user: _req.session.user });
+// Branches page (server-rendered list)
+app.get('/branches', requireAdminPage, async (req, res) => {
+  try {
+    const snap = await db.collection('branches').get();
+    const branches = snap.docs.map(normalizeBranchDoc)
+      .sort((a, b) => (a.branchName || '').localeCompare(b.branchName || ''));
+
+    res.set('Cache-Control', 'no-store');
+    res.render('branches', { user: req.session.user, branches, error: null, ok: null });
+  } catch (e) {
+    console.error('[branches page] error:', e);
+    res.status(500).send('Error loading branches.');
+  }
+});
+
+// Simple server POST add/update branch (works without JS)
+app.post('/branches/save', requireAdminPage, async (req, res) => {
+  try {
+    const branchCode = String(req.body.branchCode || req.body.code || '').trim().toUpperCase();
+    const branchName = String(req.body.branchName || req.body.name || '').trim();
+    const slug = String(req.body.slug || '').trim().toLowerCase();
+    const location = String(req.body.location || '').trim();
+    const active = String(req.body.active || 'true').toLowerCase() !== 'false';
+
+    if (!branchCode || !branchName) {
+      return res.redirect('/branches'); // keep it simple
+    }
+
+    await db.collection('branches').doc(branchCode).set({
+      branchCode,
+      code: branchCode,
+      branchName,
+      name: branchName,
+      slug: slug || branchCode.toLowerCase(),
+      location,
+      active,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    res.redirect('/branches');
+  } catch (e) {
+    console.error('[branches save] error:', e);
+    res.status(500).send('Error saving branch.');
+  }
 });
 
 // placeholders so nav doesn’t 404
 app.get('/users', requireAdminPage, (_req, res) => res.send('Users page placeholder'));
 app.get('/reports', requireAdminPage, (_req, res) => res.send('Reports page placeholder'));
 app.get('/qrcodes', requireAdminPage, (_req, res) => res.send('QR Codes page placeholder'));
-
-// ============================================================
-// API: Branches
-// Collection: branches/{BRANCH_CODE}
-// Fields we will write (compatible w/ guest + staff):
-// - branchCode (canonical)
-// - code       (same as branchCode, for older readers)
-// - name       (human name)
-// - branchName (same as name, for guest-app reader)
-// - slug       (lowercase short)
-// - updatedAt / createdAt
-// ============================================================
-
-function normalizeBranchInput(body) {
-  const branchCode = String(body.branchCode || body.code || '').trim().toUpperCase();
-  const nameRaw = String(body.name || body.branchName || '').trim();
-  const slugRaw = String(body.slug || '').trim().toLowerCase();
-
-  const name = nameRaw;
-  const slug =
-    slugRaw ||
-    nameRaw
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')  // spaces -> hyphens
-      .replace(/(^-|-$)/g, '');    // trim hyphens
-
-  return { branchCode, name, slug };
-}
-
-// List branches
-app.get('/api/admin/branches', requireAdminApi, async (_req, res) => {
-  try {
-    const snap = await db.collection('branches').get();
-    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-    // Sort: name, then code
-    rows.sort((a, b) => {
-      const an = String(a.name || a.branchName || '').toLowerCase();
-      const bn = String(b.name || b.branchName || '').toLowerCase();
-      if (an < bn) return -1;
-      if (an > bn) return 1;
-      return String(a.branchCode || a.code || a.id).localeCompare(String(b.branchCode || b.code || b.id));
-    });
-
-    res.set('Cache-Control', 'no-store');
-    return res.json({ ok: true, branches: rows });
-  } catch (e) {
-    console.error('[api branches] list error:', e);
-    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
-  }
-});
-
-// Create/Update branch
-app.post('/api/admin/branches', requireAdminApi, async (req, res) => {
-  try {
-    const { branchCode, name, slug } = normalizeBranchInput(req.body || {});
-
-    if (!branchCode) return res.status(400).json({ ok: false, error: 'Missing branchCode' });
-    if (!name) return res.status(400).json({ ok: false, error: 'Missing name' });
-
-    const ref = db.collection('branches').doc(branchCode);
-    const existing = await ref.get();
-
-    const payload = {
-      branchCode,
-      code: branchCode,
-      name,
-      branchName: name,      // guest-app reads this
-      slug,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    // on create only
-    if (!existing.exists) {
-      payload.createdAt = admin.firestore.FieldValue.serverTimestamp();
-    }
-
-    await ref.set(payload, { merge: true });
-
-    res.set('Cache-Control', 'no-store');
-    return res.json({ ok: true, branchCode });
-  } catch (e) {
-    console.error('[api branches] upsert error:', e);
-    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
-  }
-});
-
-// Optional: delete branch (use with caution)
-app.delete('/api/admin/branches/:branchCode', requireAdminApi, async (req, res) => {
-  try {
-    const branchCode = String(req.params.branchCode || '').trim().toUpperCase();
-    if (!branchCode) return res.status(400).json({ ok: false, error: 'Missing branchCode' });
-
-    await db.collection('branches').doc(branchCode).delete();
-    return res.json({ ok: true });
-  } catch (e) {
-    console.error('[api branches] delete error:', e);
-    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
-  }
-});
 
 // ---------------- API: Daily Stats ----------------
 // Reads: adminDailyStats/{YYYY-MM-DD__BRANCHCODE}
@@ -465,15 +401,23 @@ app.get('/api/admin/daily-stats', requireAdminApi, async (req, res) => {
 
     for (const b of byBranch) {
       const t = b.totals || {};
-      totals.reserved += Number(t.reserved || 0);
-      totals.seated   += Number(t.seated || 0);
-      totals.skipped  += Number(t.skipped || 0);
+
+      // IMPORTANT: handle your mixed legacy fields:
+      // - nested totals.reserved
+      // - top-level "totals.reserved" (string key) from older code
+      const reservedNested = safeNumber(t.reserved);
+      const reservedLegacy = safeNumber(b['totals.reserved']);
+      const reserved = Math.max(reservedNested, reservedLegacy);
+
+      totals.reserved += reserved;
+      totals.seated   += safeNumber(t.seated);
+      totals.skipped  += safeNumber(t.skipped);
 
       const w = b.waitingNow || {};
-      totals.waitingNow.P += Number(w.P || 0);
-      totals.waitingNow.A += Number(w.A || 0);
-      totals.waitingNow.B += Number(w.B || 0);
-      totals.waitingNow.C += Number(w.C || 0);
+      totals.waitingNow.P += safeNumber(w.P);
+      totals.waitingNow.A += safeNumber(w.A);
+      totals.waitingNow.B += safeNumber(w.B);
+      totals.waitingNow.C += safeNumber(w.C);
     }
 
     res.set('Cache-Control', 'no-store');
@@ -485,57 +429,48 @@ app.get('/api/admin/daily-stats', requireAdminApi, async (req, res) => {
   }
 });
 
-// ---------------- API: Recalculate Daily Stats (ADMIN ONLY) ----------------
-// POST /api/admin/recalc-daily?date=YYYY-MM-DD
-// Recomputes waitingNow from queues + reserved = waitingTotal + seated + skipped
-app.post('/api/admin/recalc-daily', requireAdminApi, async (req, res) => {
+// ---------------- API: Branches (optional use by JS later) ----------------
+app.get('/api/admin/branches', requireAdminApi, async (_req, res) => {
   try {
-    const dateKey = String(req.query.date || '').trim() || manilaDayKey();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
-      return res.status(400).json({ ok: false, error: 'Invalid date (YYYY-MM-DD)' });
-    }
-
-    const branches = await getBranchesList();
-    const results = [];
-
-    for (const b of branches) {
-      const statsId = adminStatsDocId(dateKey, b.code);
-      const statsRef = db.collection('adminDailyStats').doc(statsId);
-
-      // Preserve seated/skipped as currently tracked (from events via staff actions)
-      const prevSnap = await statsRef.get();
-      const prev = prevSnap.exists ? (prevSnap.data() || {}) : {};
-      const totals = prev.totals || {};
-
-      const seated = Number(totals.seated || 0);
-      const skipped = Number(totals.skipped || 0);
-
-      const waitingNow = await countWaitingNow(b.code, dateKey);
-      const waitingTotal = waitingNow.P + waitingNow.A + waitingNow.B + waitingNow.C;
-
-      // Reserved should represent "total tickets today" that still matter:
-      // waiting/ called + seated + skipped
-      const reserved = waitingTotal + seated + skipped;
-
-      // IMPORTANT: write nested object, DO NOT write "totals.reserved" as a literal field.
-      await statsRef.set({
-        dateKey,
-        branchCode: b.code,
-        branchName: b.name,
-        totals: { reserved, seated, skipped },
-        waitingNow,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-
-      results.push({ branchCode: b.code, reserved, seated, skipped, waitingNow });
-    }
-
+    const snap = await db.collection('branches').get();
+    const branches = snap.docs.map(normalizeBranchDoc);
     res.set('Cache-Control', 'no-store');
-    return res.json({ ok: true, dateKey, results });
-
+    res.json({ ok: true, branches });
   } catch (e) {
-    console.error('[api recalc-daily] error:', e);
-    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
+    console.error('[api branches] error:', e);
+    res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
+  }
+});
+
+app.post('/api/admin/branches/save', requireAdminApi, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const branchCode = String(body.branchCode || body.code || '').trim().toUpperCase();
+    const branchName = String(body.branchName || body.name || '').trim();
+    const slug = String(body.slug || '').trim().toLowerCase();
+    const location = String(body.location || '').trim();
+    const active = (body.active === false || String(body.active).toLowerCase() === 'false') ? false : true;
+
+    if (!branchCode || !branchName) {
+      return res.status(400).json({ ok: false, error: 'branchCode and branchName are required' });
+    }
+
+    await db.collection('branches').doc(branchCode).set({
+      branchCode,
+      code: branchCode,
+      branchName,
+      name: branchName,
+      slug: slug || branchCode.toLowerCase(),
+      location,
+      active,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[api branches save] error:', e);
+    res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
   }
 });
 
@@ -549,6 +484,8 @@ app.get('/__whoami', (req, res) => {
     ok: true,
     cwd: process.cwd(),
     file: __filename,
+    cookieDomain,
+    secureMode: 'auto',
     user: req.session?.user || null
   });
 });
