@@ -401,6 +401,46 @@ app.post('/branches/save', requireAdminPage, async (req, res) => {
   }
 });
 
+// Delete branch (server-rendered flow)
+app.post('/branches/delete', requireAdminPage, async (req, res) => {
+  try {
+    const branchCode = String(req.body.branchCode || '').trim().toUpperCase();
+    if (!branchCode) return res.redirect('/branches');
+
+    await db.collection('branches').doc(branchCode).delete();
+
+    // Optional: write an audit log (recommended)
+    try {
+      await db.collection('adminAudit').add({
+        action: 'branch.delete',
+        branchCode,
+        by: req.session.user?.email || null,
+        ts: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch {}
+
+    return res.redirect('/branches');
+  } catch (e) {
+    console.error('[branches delete] error:', e);
+    return res.status(500).send('Error deleting branch.');
+  }
+});
+
+// API delete (if you’re using JS later)
+app.post('/api/admin/branches/delete', requireAdminApi, async (req, res) => {
+  try {
+    const branchCode = String(req.body.branchCode || '').trim().toUpperCase();
+    if (!branchCode) return res.status(400).json({ ok: false, error: 'branchCode required' });
+
+    await db.collection('branches').doc(branchCode).delete();
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('[api branches delete] error:', e);
+    return res.status(500).json({ ok: false, error: 'SERVER_ERROR' });
+  }
+});
+
+
 // placeholders so nav doesn’t 404
 app.get('/users', requireAdminPage, (_req, res) => res.send('Users page placeholder'));
 app.get('/reports', requireAdminPage, (_req, res) => res.send('Reports page placeholder'));
