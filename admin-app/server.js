@@ -133,10 +133,18 @@ if (ENV.FORCE_HTTPS === '1') {
 
 // ---------------- Session ----------------
 // IMPORTANT: If blank, do NOT set cookie domain at all.
-const cookieDomain = ENV.SESSION_COOKIE_DOMAIN ? ENV.SESSION_COOKIE_DOMAIN : undefined;
+function getCookieDomain(req) {
+  // If explicitly set in cPanel, use it (only if it looks valid)
+  const v = (ENV.SESSION_COOKIE_DOMAIN || '').trim();
+  if (v && v.includes('.')) return v;
+
+  // Default: DO NOT set cookie domain (works for both staging and live reliably)
+  return undefined;
+}
+
 
 app.use(session({
-  name: 'admin.sid',
+  name: process.env.SESSION_COOKIE_NAME || 'admin.sid',
   secret: ENV.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -151,6 +159,19 @@ app.use(session({
     maxAge: 1000 * 60 * 60 * 12 // 12 hours
   }
 }));
+
+app.use((req, _res, next) => {
+  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const isHttps = (proto === 'https') || req.secure === true;
+
+  // always correct behind cPanel proxy
+  req.session.cookie.secure = isHttps;
+
+  // flexible domain: undefined = host-only cookie (recommended)
+  req.session.cookie.domain = getCookieDomain(req);
+
+  next();
+});
 
 // Force secure cookie when behind HTTPS (fixes login loops on cPanel)
 app.use((req, _res, next) => {
