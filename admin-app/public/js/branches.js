@@ -15,6 +15,7 @@
     return String(v);
   }
 
+  /* ---------------- Toast ---------------- */
   function toast(msg, type) {
     var wrap = el('toastWrap');
     if (!wrap) return;
@@ -39,6 +40,7 @@
     }, 3500);
   }
 
+  /* ---------------- Form ---------------- */
   function setForm(b) {
     el('f-code').value = (b.branchCode || '').toUpperCase();
     el('f-name').value = b.branchName || '';
@@ -58,15 +60,16 @@
   }
 
   function getPayload() {
-    var code = (el('f-code').value || '').trim().toUpperCase();
-    var name = (el('f-name').value || '').trim();
-    var slug = (el('f-slug').value || '').trim().toLowerCase();
-    var location = (el('f-location').value || '').trim();
-    var active = (el('f-active').value || 'true') !== 'false';
-
-    return { branchCode: code, branchName: name, slug: slug, location: location, active: active };
+    return {
+      branchCode: (el('f-code').value || '').trim().toUpperCase(),
+      branchName: (el('f-name').value || '').trim(),
+      slug: (el('f-slug').value || '').trim().toLowerCase(),
+      location: (el('f-location').value || '').trim(),
+      active: (el('f-active').value || 'true') !== 'false'
+    };
   }
 
+  /* ---------------- API ---------------- */
   async function apiSave(payload) {
     var resp = await fetch('/api/admin/branches/save?t=' + Date.now(), {
       method: 'POST',
@@ -78,13 +81,6 @@
     if (resp.status === 401) {
       window.location.href = '/login';
       return null;
-    }
-
-    var ct = (resp.headers.get('content-type') || '').toLowerCase();
-    if (ct.indexOf('application/json') === -1) {
-      var text = '';
-      try { text = await resp.text(); } catch {}
-      throw new Error('Expected JSON, got: ' + ct + ' ' + text.slice(0, 80));
     }
 
     var json = await resp.json();
@@ -110,6 +106,7 @@
     return json.branches || [];
   }
 
+  /* ---------------- Table Rendering ---------------- */
   function renderTable(branches) {
     var table = el('branchesTable');
     if (!table) return;
@@ -117,7 +114,7 @@
     if (!tbody) return;
 
     if (!branches.length) {
-      tbody.innerHTML = '<tr><td colspan="5">No branches found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6">No branches found.</td></tr>';
       return;
     }
 
@@ -134,7 +131,7 @@
 
       var packed = {
         branchCode: (b.branchCode || b.code || b.id || '').toUpperCase(),
-        branchName: b.branchName || b.name || (b.branchCode || b.code || b.id || ''),
+        branchName: b.branchName || b.name || '',
         slug: b.slug || '',
         location: b.location || '',
         active: (b.active === false) ? false : true,
@@ -154,12 +151,45 @@
       tr.appendChild(td(packed.active ? 'Yes' : 'No'));
       tr.appendChild(td(fmtUpdated(packed.updatedAt)));
 
+      /* ---- ACTION COLUMN (DELETE) ---- */
+      var tdAction = document.createElement('td');
+
+      var form = document.createElement('form');
+      form.method = 'post';
+      form.action = '/branches/delete';
+      form.onsubmit = function () {
+        return confirm(
+          'Delete branch ' + packed.branchCode + '?\n\n' +
+          'This will NOT delete historical queue or report data.\n' +
+          'An audit log will be recorded.'
+        );
+      };
+
+      var hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'branchCode';
+      hidden.value = packed.branchCode;
+
+      var btn = document.createElement('button');
+      btn.type = 'submit';
+      btn.textContent = 'Delete';
+      btn.className = 'btn btn-danger btn-sm';
+      btn.onclick = function (e) {
+        e.stopPropagation(); // critical: prevent row edit
+      };
+
+      form.appendChild(hidden);
+      form.appendChild(btn);
+      tdAction.appendChild(form);
+      tr.appendChild(tdAction);
+
       tbody.appendChild(tr);
     }
 
     bindRowClicks();
   }
 
+  /* ---------------- Row Click ---------------- */
   function bindRowClicks() {
     var rows = document.querySelectorAll('.branch-row');
     for (var i = 0; i < rows.length; i++) {
@@ -184,6 +214,7 @@
     }
   }
 
+  /* ---------------- Events ---------------- */
   async function onSave(ev) {
     ev.preventDefault();
 
@@ -193,24 +224,14 @@
       return;
     }
 
-    var msg =
-      'Save this branch?\n\n' +
-      'Code: ' + payload.branchCode + '\n' +
-      'Name: ' + payload.branchName + '\n' +
-      'Slug: ' + (payload.slug || '(auto)') + '\n' +
-      'Active: ' + (payload.active ? 'Yes' : 'No');
-
-    if (!window.confirm(msg)) return;
+    if (!confirm('Save branch ' + payload.branchCode + '?')) return;
 
     try {
       await apiSave(payload);
       toast('Saved: ' + payload.branchCode, 'success');
 
-      // reload table to show updates
       var branches = await apiReload();
       renderTable(branches);
-
-      // keep form updated timestamp fresh (best effort)
       el('lastUpdated').textContent = 'Updated: just now';
     } catch (e) {
       console.error(e);
