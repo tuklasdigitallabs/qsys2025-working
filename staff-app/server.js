@@ -230,10 +230,10 @@ async function recordAdminStatEvent({ branchCode, dateKey, action, ticketId, bra
 
     const inc = admin.firestore.FieldValue.increment;
     const incPayload =
-      action === 'seated' ? { 'totals.seated': inc(1) } :
-      action === 'skipped' ? { 'totals.skipped': inc(1) } :
-      action === 'reserved' ? { 'totals.reserved': inc(1) } :
-      null;
+    action === 'seated'   ? { totals: { seated:   inc(1) } } :
+    action === 'skipped'  ? { totals: { skipped:  inc(1) } } :
+    action === 'reserved' ? { totals: { reserved: inc(1) } } :
+    null;
 
     await db.runTransaction(async (tx) => {
       const ev = await tx.get(eventRef);
