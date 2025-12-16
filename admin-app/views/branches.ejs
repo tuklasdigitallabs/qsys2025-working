@@ -80,14 +80,16 @@
         <div class="table-wrap mt">
           <table class="table" id="branchesTable">
             <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Slug</th>
-                <th>Active</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
+            <tr>
+              <th>Code</th>
+              <th>Name</th>
+              <th>Slug</th>
+              <th>Active</th>
+              <th>Updated</th>
+              <th style="width:90px;">Action</th>
+            </tr>
+          </thead>
+
             <tbody>
               <% if (!branches || !branches.length) { %>
                 <tr><td colspan="5">No branches found.</td></tr>
@@ -108,6 +110,19 @@
                     <td><%= b.slug || '—' %></td>
                     <td><%= (b.active === false) ? 'No' : 'Yes' %></td>
                     <td><%= (b.updatedAt && b.updatedAt._seconds) ? new Date((b.updatedAt._seconds*1000)).toLocaleString() : '—' %></td>
+                    <td>
+                      <form method="post"
+                            action="/branches/delete"
+                            onsubmit="return confirm('Delete branch <%= b.branchCode || b.code || b.id %>? This will NOT remove historical records.');">
+                        <input type="hidden" name="branchCode" value="<%= b.branchCode || b.code || b.id %>">
+                        <button type="submit"
+                                class="btn btn-danger btn-sm"
+                                onclick="event.stopPropagation();">
+                          Delete
+                        </button>
+                      </form>
+                    </td>
+
                   </tr>
                 <% }); %>
               <% } %>
